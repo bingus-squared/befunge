@@ -1,0 +1,12 @@
+[package]
+name = "befunge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7.5", features = ["ws"] }
+anyhow = { version = "1.0.86", features = ["backtrace"] }
+tokio = { version = "1.40.0", features = ["full"] }
+sled = "0.34.7"
+serde = { version = "1.0.210", features = ["derive"] }
+rand = { version = "0.8.5", features = ["small_rng"] }
