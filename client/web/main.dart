@@ -8,14 +8,21 @@ import 'package:vector_math/vector_math.dart';
 import 'package:web/helpers.dart';
 
 class Camera {
-  Vector2 center = Vector2.zero();
+  Vector2 center = Vector2(
+    (chunkWidth * chunkLimit) / 2,
+    (chunkWidth * chunkLimit) / 2,
+  );
   double zoomD = 4.0;
   int get zoom => pow(zoomD, 2).round();
   late double lastWidth;
   late double lastHeight;
   int get scaledChunkWidth => chunkWidth * zoom;
-  double get topLeftChunkX => center.x / chunkWidth - lastWidth / scaledChunkWidth / 2;
-  double get topLeftChunkY => center.y / chunkWidth - lastHeight / scaledChunkWidth / 2;
+  double get topLeftX => center.x - lastWidth / zoom / 2;
+  double get topLeftY => center.y - lastHeight / zoom / 2;
+  double get topLeftChunkX =>
+      center.x / chunkWidth - lastWidth / scaledChunkWidth / 2;
+  double get topLeftChunkY =>
+      center.y / chunkWidth - lastHeight / scaledChunkWidth / 2;
   double get bottomRightChunkX => topLeftChunkX + lastWidth / scaledChunkWidth;
   double get bottomRightChunkY => topLeftChunkY + lastHeight / scaledChunkWidth;
 }
@@ -28,19 +35,49 @@ class AtlasCache {
 
   void generateAtlas(int scale) async {
     try {
-      final canvas = html.CanvasElement(width: scale * 16, height: scale * 16) as CanvasElement;
+      final canvas = html.CanvasElement(width: scale * 16, height: scale * 16)
+          as CanvasElement;
       final context = canvas.context2D;
       context.fillStyle = 'rgb(20, 25, 33)' as JSString;
       context.font = '${scale - 2}px monospace';
       context.textAlign = 'center';
       context.textBaseline = 'middle';
+
+      const flag_colors = [
+        'lch(50.77% 78.04 0)',
+        'lch(44.91% 78.09 36.11)',
+        'lch(56.64% 78.04 60.56)',
+        'lch(76.7% 97.79 86.11)',
+        'lch(76.7% 90.18 132.36)',
+        'lch(76.7% 90.18 168.33)',
+        'lch(76.7% 62.88 216.11)',
+        'lch(50.15% 88.83 282.78)',
+        'lch(50.15% 108.08 314.48)',
+        'lch(5.71% 0 314.48)',
+      ];
+
       for (var y = 0; y < 16; y++) {
         for (var x = 0; x < 16; x++) {
           var c = x + y * 16;
+          var newScale = scale - 2;
+          if (c >= 0x80 && c < 0x80 + flag_colors.length) {
+            newScale = (newScale * 0.8).round();
+          }
+          context.font = '${newScale}px monospace';
           context.clearRect(x * scale, y * scale, scale, scale);
-          context.fillText(characters[c], x * scale + scale / 2, y * scale + scale / 2);
+          context.fillText(
+              characters[c], x * scale + scale / 2, y * scale + scale / 2);
         }
       }
+      context.globalCompositeOperation = "source-atop";
+
+      for (var i = 0; i < flag_colors.length; i++) {
+        final x = (i + 0x80) % 16;
+        final y = (i + 0x80) ~/ 16;
+        context.fillStyle = flag_colors[i] as JSString;
+        context.fillRect(x * scale, y * scale, scale, scale);
+      }
+      context.globalCompositeOperation = "source-over";
       atlases[scale] = canvas;
     } finally {
       inProgress.remove(scale);
@@ -65,19 +102,27 @@ class AtlasCache {
 }
 
 const chunkWidth = 32;
-const maxChunkOffset = 335544320;
+const chunkLimit = 10; // 335544320;
 var rand = Random();
 
 class Chunk {
+  final int x;
+  final int y;
   final cells = Uint8List(chunkWidth * chunkWidth);
   final canvas = document.createElement('canvas') as CanvasElement;
   late int lastZoom;
 
-  Chunk() {
-    cells.fillRange(0, cells.length, 0x20);
-    for (var i = 0; i < cells.length; i++) {
-      if (rand.nextInt(100) < 5) {
-        cells[i] = rand.nextInt(256);
+  Chunk(this.x, this.y) {
+    if (this.x == 0 && this.y == 0) {
+      for (var i = 0; i < cells.length; i++) {
+        cells[i] = i;
+      }
+    } else {
+      cells.fillRange(0, cells.length, 0x20);
+      for (var i = 0; i < cells.length; i++) {
+        if (rand.nextInt(100) < 5) {
+          cells[i] = rand.nextInt(256);
+        }
       }
     }
   }
@@ -95,6 +140,25 @@ class Chunk {
     context.font = '${zoom}px monospace';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
+
+    if (zoom > 8) {
+      context.fillStyle = 'rgb(187, 197, 216)' as JSString;
+      for (var y = 0; y <= chunkWidth; y++) {
+        for (var x = 0; x <= chunkWidth; x++) {
+          final cellX = x * zoom;
+          final cellY = y * zoom;
+          if (zoom >= 20) {
+            final len = 2;
+            context.fillRect(cellX, cellY, len, 1);
+            context.fillRect(cellX, cellY, 1, len);
+            context.fillRect(cellX + zoom - (len - 1), cellY, len - 1, 1);
+            context.fillRect(cellX, cellY - (len - 1), 1, len - 1);
+          } else {
+            context.fillRect(cellX, cellY, 1, 1);
+          }
+        }
+      }
+    }
 
     if (atlas == null) {
       queueRender();
@@ -124,15 +188,6 @@ class Chunk {
         }
       }
     }
-
-    context.fillStyle = 'rgb(158, 190, 255)' as JSString;
-    for (var y = 0; y <= chunkWidth; y++) {
-      for (var x = 0; x <= chunkWidth; x++) {
-        final cellX = x * zoom;
-        final cellY = y * zoom;
-        context.fillRect(cellX, cellY, 1, 1);
-      }
-    }
   }
 }
 
@@ -148,7 +203,7 @@ class ChunkCache {
       }
       return chunks[key]!;
     } else {
-      final chunk = Chunk();
+      final chunk = Chunk(x, y);
       chunk.lastZoom = camera.zoom;
       chunks[key] = chunk;
       chunk.paint();
@@ -206,21 +261,30 @@ void render() {
   final bottomRightCellX = camera.bottomRightChunkX.ceil();
   final bottomRightCellY = camera.bottomRightChunkY.ceil();
   final offsetX =
-      ((camera.topLeftChunkX - topLeftChunkX) * camera.scaledChunkWidth).round() / camera.scaledChunkWidth;
+      ((camera.topLeftChunkX - topLeftChunkX) * camera.scaledChunkWidth)
+              .round() /
+          camera.scaledChunkWidth;
   final offsetY =
-      ((camera.topLeftChunkY - topLeftChunkY) * camera.scaledChunkWidth).round() / camera.scaledChunkWidth;
+      ((camera.topLeftChunkY - topLeftChunkY) * camera.scaledChunkWidth)
+              .round() /
+          camera.scaledChunkWidth;
 
   // context.drawImage(atlas as JSObject, 0, 0); return;
 
   // context.drawImage(chunkCache.getChunk(0, 0).canvas as JSObject, 0, 0); return;
 
+  var highlightWidth = camera.zoom >= 20 ? 2 : 1;
+  var highlightRadius = camera.zoom >= 20 ? 4 : camera.zoom >= 10 ? 2 : 0;
+  var highlightPadding = camera.zoom >= 20 ? -2 : camera.zoom >= 10 ? -1 : 0;
+
   for (var y = topLeftChunkY; y <= bottomRightCellY; y++) {
     for (var x = topLeftChunkX; x <= bottomRightCellX; x++) {
       final chunkX = ((x - topLeftChunkX) - offsetX) * camera.scaledChunkWidth;
       final chunkY = ((y - topLeftChunkY) - offsetY) * camera.scaledChunkWidth;
-      if (x < 0 || y < 0) {
+      if (x < 0 || y < 0 || x >= chunkLimit || y >= chunkLimit) {
         context.fillStyle = 'rgb(187, 197, 216)' as JSString;
-        context.fillRect(chunkX, chunkY, camera.scaledChunkWidth, camera.scaledChunkWidth);
+        context.fillRect(
+            chunkX, chunkY, camera.scaledChunkWidth, camera.scaledChunkWidth);
         continue;
       }
       final chunk = chunkCache.getChunk(x, y);
@@ -239,7 +303,53 @@ void render() {
       chunkCache.removeChunk(key.$1, key.$2);
     }
   }
+
+  if (selectStartCell != null) {
+    var x0 = selectStartCell!.$1;
+    var y0 = selectStartCell!.$2;
+    var x1 = selectEndCell!.$1;
+    var y1 = selectEndCell!.$2;
+    (x0, x1) = (min(x0, x1), max(x0, x1));
+    (y0, y1) = (min(y0, y1), max(y0, y1));
+    final cellX = (x0 - camera.topLeftX) * camera.zoom;
+    final cellY = (y0 - camera.topLeftY) * camera.zoom;
+    context.strokeStyle = 'rgb(28, 48, 77)' as JSString;
+    context.lineWidth = highlightWidth;
+    final path = Path2D();
+    final padding = highlightPadding + 1;
+    path.roundRect(
+        cellX - padding,
+        cellY - padding,
+        (x1 - x0 + 1) * camera.zoom + padding * 2 + 1,
+        (y1 - y0 + 1) * camera.zoom + padding * 2 + 1,
+        [max(0, highlightRadius - 1)] as JSObject);
+    context.stroke(path);
+  }
+
+  if (hoverCell != null && !selecting) {
+    final cellX = hoverCell!.$1;
+    final cellY = hoverCell!.$2;
+    final chunkX = (cellX - camera.topLeftX) * camera.zoom;
+    final chunkY = (cellY - camera.topLeftY) * camera.zoom;
+    context.strokeStyle = 'rgb(143, 156, 178)' as JSString;
+    context.lineWidth = highlightWidth;
+    final path = Path2D();
+    path.roundRect(
+        chunkX - highlightPadding,
+        chunkY - highlightPadding,
+        camera.zoom + highlightPadding * 2 + 1,
+        camera.zoom + highlightPadding * 2 + 1,
+        [highlightRadius] as JSObject);
+    context.stroke(path);
+  }
 }
+
+
+var panning = false;
+var selecting = false;
+(int, int)? hoverCell = (0, 0);
+(int, int)? selectStartCell;
+(int, int)? selectEndCell;
 
 void main() {
   render();
@@ -247,49 +357,63 @@ void main() {
     render();
   });
 
-  var panning = false;
-
   final canvas = document.querySelector('#output') as CanvasElement;
   void updateCursor() {
-    canvas.style.cursor = panning ? 'grabbing' : 'default';
+    canvas.style.cursor = panning ? 'grabbing' : 'pointer';
   }
-  updateCursor();
 
+  updateCursor();
   html.window.onContextMenu.listen((event) {
-    print('Context menu: $event');
     event.preventDefault();
   });
   html.window.onMouseDown.listen((event) {
-    print('Mouse down: $event');
     event.preventDefault();
-    if (event.button == 1) {
+    if (event.button == 0) {
+      selectStartCell = hoverCell;
+      selectEndCell = hoverCell;
+      selecting = true;
+      render();
+    } else if (event.button == 1) {
       panning = true;
       updateCursor();
     }
   });
   html.window.onMouseUp.listen((event) {
-    print('Mouse up: $event');
     event.preventDefault();
-    if (event.button == 1) {
+    if (event.button == 0) {
+      selecting = false;
+      render();
+    } else if (event.button == 1) {
       panning = false;
       updateCursor();
     }
   });
   html.window.onMouseMove.listen((event) {
-    print('Mouse move: $event');
     event.preventDefault();
     if (panning) {
       camera.center.x -= event.movement.x / camera.zoom;
       camera.center.y -= event.movement.y / camera.zoom;
       render();
     }
+    final x = event.offset.x;
+    final y = event.offset.y;
+    final cellX = (x / camera.zoom + camera.topLeftX).floor();
+    final cellY = (y / camera.zoom + camera.topLeftY).floor();
+    if (hoverCell != (cellX, cellY)) {
+      hoverCell = (cellX, cellY);
+
+      if (selecting) {
+        selectEndCell = hoverCell;
+        render();
+      }
+
+      render();
+    }
   });
-  // Scroll to zoom
   html.window.onWheel.listen((event) {
-    print('Wheel: $event');
     event.preventDefault();
     final delta = event.deltaY;
-    camera.zoomD = (camera.zoomD - delta / 400).clamp(2, 16);
+    camera.zoomD = (camera.zoomD - delta / 400).clamp(2, 10);
     render();
   });
 }

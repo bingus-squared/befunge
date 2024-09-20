@@ -79,21 +79,21 @@ async fn main() -> Result<()> {
     let port = 3000;
     start_http_server(port, app_state).await?;
 
-    // let grid = Grid::new_from_string(include_str!("examples/foo.txt"));
-    // let mut simulation = Simulation::new(grid);
-    // simulation.grid.apply(GridUpdate::SpawnCursor {
-    //     id: 0,
-    //     pos: (0, 0),
-    //     direction: Direction::Right,
-    //     stack: vec![],
-    //     energy: 1000,
-    //     string_mode: false,
-    // });
-    // for _ in 0..10 {
-    //     println!("{}================", simulation.grid);
-    //     simulation.step();
-    // }
-    // println!("{}================", simulation.grid);
+     // let grid = Grid::new_from_string(include_str!("examples/foo.txt"));
+     // let mut simulation = Simulation::new(grid);
+     // simulation.grid.apply(GridUpdate::SpawnCursor {
+     //     id: 0,
+     //     pos: (0, 0),
+     //     direction: Direction::Right,
+     //     stack: vec![],
+     //     energy: 1000,
+     //     string_mode: false,
+     // });
+     // for _ in 0..10 {
+     //     println!("{}================", simulation.grid);
+     //     simulation.step();
+     // }
+     // println!("{}================", simulation.grid);
 
     Ok(())
 }

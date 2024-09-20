@@ -4,11 +4,12 @@ pub mod subscription;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
-const CHUNK_WIDTH: usize = 64;
+const CHUNK_WIDTH: usize = 32;
+const CHUNK_LIMIT: usize = 10;  // 335544320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Cursor {
-    // Position is relative to the chunk
+     // Position is relative to the chunk
     x: usize,
     y: usize,
     direction: Direction,
@@ -159,7 +160,7 @@ impl Grid {
     }
 
     pub fn get_chunk_mut(&mut self, chunk_x: usize, chunk_y: usize) -> &mut Chunk {
-        // Try finding an existing chunk, or create a new one
+         // Try finding an existing chunk, or create a new one
         self.chunks
             .entry((chunk_x, chunk_y))
             .or_insert_with(Chunk::new)
@@ -180,17 +181,17 @@ impl Grid {
                 let new_chunk_x = x / CHUNK_WIDTH;
                 let new_chunk_y = y / CHUNK_WIDTH;
                 if cur_chunk_x != new_chunk_x || cur_chunk_y != new_chunk_y {
-                    // Move cursor to a new chunk
+                     // Move cursor to a new chunk
                     let mut cursor = cur_chunk.cursors.remove(&id).unwrap();
                     cursor.x = x % CHUNK_WIDTH;
                     cursor.y = y % CHUNK_WIDTH;
                     let new_chunk = self.get_chunk_mut(new_chunk_x, new_chunk_y);
                     new_chunk.cursors.insert(id, cursor);
 
-                    // Update cursor chunk
+                     // Update cursor chunk
                     self.cursor_chunks.insert(id, (new_chunk_x, new_chunk_y));
                 } else {
-                    // Move cursor within the same chunk
+                     // Move cursor within the same chunk
                     let cursor = cur_chunk.cursors.get_mut(&id).unwrap();
                     cursor.x = x % CHUNK_WIDTH;
                     cursor.y = y % CHUNK_WIDTH;
