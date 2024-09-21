@@ -2,13 +2,13 @@ use crate::sim::GridUpdate;
 use slab::Slab;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-pub trait Subscriber {
+pub trait Subscriber: Send {
     fn notify(&self, updates: Vec<GridUpdate>);
 }
 
 pub struct SubscriptionManager {
-    subscribers: Slab<(HashSet<(usize, usize)>, Box<dyn Subscriber>)>,
-    chunks: HashMap<(usize, usize), HashSet<usize>>,
+    pub subscribers: Slab<(HashSet<(usize, usize)>, Box<dyn Subscriber>)>,
+    pub chunks: HashMap<(usize, usize), HashSet<usize>>,
 }
 
 impl SubscriptionManager {
@@ -70,6 +70,16 @@ impl SubscriptionManager {
             .remove(&id);
         if self.chunks[&(chunk_x, chunk_y)].len() == 0 {
             self.chunks.remove(&(chunk_x, chunk_y));
+        }
+    }
+
+    pub fn remove_subscriber(&mut self, id: usize) {
+        let (chunks, _) = self.subscribers.remove(id);
+        for chunk in chunks {
+            self.chunks.get_mut(&chunk).unwrap().remove(&id);
+            if self.chunks[&chunk].len() == 0 {
+                self.chunks.remove(&chunk);
+            }
         }
     }
 }

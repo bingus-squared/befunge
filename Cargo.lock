@@ -165,6 +165,7 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-extra",
+ "base64",
  "futures-util",
  "rand",
  "serde",

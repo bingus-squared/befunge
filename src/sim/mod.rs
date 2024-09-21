@@ -1,36 +1,37 @@
 pub mod step;
 pub mod subscription;
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
 const CHUNK_WIDTH: usize = 32;
-const CHUNK_LIMIT: usize = 10;  // 335544320;
+const CHUNK_LIMIT: usize = 10; // 335544320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Cursor {
-     // Position is relative to the chunk
-    x: usize,
-    y: usize,
-    direction: Direction,
-    stack: Vec<i64>,
-    energy: usize,
-    string_mode: bool,
+    // Position is relative to the chunk
+    pub x: usize,
+    pub y: usize,
+    pub direction: Direction,
+    pub stack: Vec<i64>,
+    pub energy: usize,
+    pub string_mode: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Chunk {
-    cells: [u8; CHUNK_WIDTH * CHUNK_WIDTH],
-    cursors: HashMap<usize, Cursor>,
+    pub cells: [u8; CHUNK_WIDTH * CHUNK_WIDTH],
+    pub cursors: HashMap<usize, Cursor>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Grid {
-    chunks: HashMap<(usize, usize), Chunk>,
-    cursor_chunks: HashMap<usize, (usize, usize)>,
+    pub chunks: HashMap<(usize, usize), Chunk>,
+    pub cursor_chunks: HashMap<usize, (usize, usize)>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Direction {
     Up,
     Down,
@@ -38,20 +39,18 @@ pub enum Direction {
     Right,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum GridUpdate {
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum GridUpdateAction {
     UpdateCell {
-        pos: (usize, usize),
         c: u8,
     },
     MoveCursor {
         id: usize,
-        pos: (usize, usize),
-        to: (usize, usize),
+        to_x: usize,
+        to_y: usize,
     },
     SpawnCursor {
         id: usize,
-        pos: (usize, usize),
         direction: Direction,
         stack: Vec<i64>,
         energy: usize,
@@ -59,28 +58,30 @@ pub enum GridUpdate {
     },
     DestroyCursor {
         id: usize,
-        pos: (usize, usize),
     },
     UpdateStack {
         id: usize,
-        pos: (usize, usize),
         pop: usize,
         push: Vec<i64>,
     },
     ToggleStringMode {
         id: usize,
-        pos: (usize, usize),
     },
     ChangeDirection {
         id: usize,
-        pos: (usize, usize),
         direction: Direction,
     },
     ConsumeEnergy {
         id: usize,
-        pos: (usize, usize),
         energy: usize,
     },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GridUpdate {
+    pub action: GridUpdateAction,
+    pub x: usize,
+    pub y: usize,
 }
 
 impl Chunk {
@@ -160,46 +161,43 @@ impl Grid {
     }
 
     pub fn get_chunk_mut(&mut self, chunk_x: usize, chunk_y: usize) -> &mut Chunk {
-         // Try finding an existing chunk, or create a new one
+        // Try finding an existing chunk, or create a new one
         self.chunks
             .entry((chunk_x, chunk_y))
             .or_insert_with(Chunk::new)
     }
 
-    pub fn apply(&mut self, dt: GridUpdate) {
-        match dt {
-            GridUpdate::UpdateCell { pos: (x, y), c } => {
+    pub fn apply(&mut self, update: GridUpdate) {
+        let x = update.x;
+        let y = update.y;
+        match update.action {
+            GridUpdateAction::UpdateCell { c } => {
                 self.set_cell(x, y, c);
             }
-            GridUpdate::MoveCursor {
-                id,
-                pos: _from,
-                to: (x, y),
-            } => {
+            GridUpdateAction::MoveCursor { id, to_x, to_y } => {
                 let (cur_chunk_x, cur_chunk_y) = self.cursor_chunks[&id];
                 let cur_chunk = self.chunks.get_mut(&(cur_chunk_x, cur_chunk_y)).unwrap();
-                let new_chunk_x = x / CHUNK_WIDTH;
-                let new_chunk_y = y / CHUNK_WIDTH;
+                let new_chunk_x = to_x / CHUNK_WIDTH;
+                let new_chunk_y = to_y / CHUNK_WIDTH;
                 if cur_chunk_x != new_chunk_x || cur_chunk_y != new_chunk_y {
-                     // Move cursor to a new chunk
+                    // Move cursor to a new chunk
                     let mut cursor = cur_chunk.cursors.remove(&id).unwrap();
-                    cursor.x = x % CHUNK_WIDTH;
-                    cursor.y = y % CHUNK_WIDTH;
+                    cursor.x = to_x % CHUNK_WIDTH;
+                    cursor.y = to_y % CHUNK_WIDTH;
                     let new_chunk = self.get_chunk_mut(new_chunk_x, new_chunk_y);
                     new_chunk.cursors.insert(id, cursor);
 
-                     // Update cursor chunk
+                    // Update cursor chunk
                     self.cursor_chunks.insert(id, (new_chunk_x, new_chunk_y));
                 } else {
-                     // Move cursor within the same chunk
+                    // Move cursor within the same chunk
                     let cursor = cur_chunk.cursors.get_mut(&id).unwrap();
-                    cursor.x = x % CHUNK_WIDTH;
-                    cursor.y = y % CHUNK_WIDTH;
+                    cursor.x = to_x % CHUNK_WIDTH;
+                    cursor.y = to_y % CHUNK_WIDTH;
                 }
             }
-            GridUpdate::SpawnCursor {
+            GridUpdateAction::SpawnCursor {
                 id,
-                pos: (x, y),
                 direction,
                 stack,
                 energy,
@@ -221,17 +219,12 @@ impl Grid {
                 );
                 self.cursor_chunks.insert(id, (chunk_x, chunk_y));
             }
-            GridUpdate::DestroyCursor { id, pos: _pos } => {
+            GridUpdateAction::DestroyCursor { id } => {
                 let (chunk_x, chunk_y) = self.cursor_chunks.remove(&id).unwrap();
                 let chunk = self.chunks.get_mut(&(chunk_x, chunk_y)).unwrap();
                 chunk.cursors.remove(&id);
             }
-            GridUpdate::UpdateStack {
-                id,
-                pos: _pos,
-                pop,
-                push,
-            } => {
+            GridUpdateAction::UpdateStack { id, pop, push } => {
                 let cursor = self.get_cursor_mut(id).unwrap();
                 for _ in 0..pop {
                     cursor.stack.pop();
@@ -240,23 +233,15 @@ impl Grid {
                     cursor.stack.push(value);
                 }
             }
-            GridUpdate::ChangeDirection {
-                id,
-                pos: _pos,
-                direction,
-            } => {
+            GridUpdateAction::ChangeDirection { id, direction } => {
                 let cursor = self.get_cursor_mut(id).unwrap();
                 cursor.direction = direction;
             }
-            GridUpdate::ConsumeEnergy {
-                id,
-                pos: _pos,
-                energy,
-            } => {
+            GridUpdateAction::ConsumeEnergy { id, energy } => {
                 let cursor = self.get_cursor_mut(id).unwrap();
                 cursor.energy -= energy;
             }
-            GridUpdate::ToggleStringMode { id, pos: _pos } => {
+            GridUpdateAction::ToggleStringMode { id } => {
                 let cursor = self.get_cursor_mut(id).unwrap();
                 cursor.string_mode = !cursor.string_mode;
             }
@@ -334,34 +319,18 @@ impl Display for Grid {
 
 impl GridUpdate {
     pub fn visit_chunks<F: FnMut(usize, usize)>(&self, mut cond: F) {
-        match self {
-            GridUpdate::UpdateCell { pos: (x, y), c: _ } => cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH),
-            GridUpdate::MoveCursor {
-                pos: (x, y),
-                to: (x2, y2),
-                ..
-            } => {
-                let chunk_x = x / CHUNK_WIDTH;
-                let chunk_y = y / CHUNK_WIDTH;
-                let chunk_x2 = x2 / CHUNK_WIDTH;
-                let chunk_y2 = y2 / CHUNK_WIDTH;
-                cond(chunk_x, chunk_y);
+        cond(self.x / CHUNK_WIDTH, self.y / CHUNK_WIDTH);
+        match self.action {
+            GridUpdateAction::MoveCursor { to_x, to_y, .. } => {
+                let chunk_x = self.x / CHUNK_WIDTH;
+                let chunk_y = self.y / CHUNK_WIDTH;
+                let chunk_x2 = to_x / CHUNK_WIDTH;
+                let chunk_y2 = to_y / CHUNK_WIDTH;
                 if chunk_x != chunk_x2 || chunk_y != chunk_y2 {
                     cond(chunk_x2, chunk_y2);
                 }
             }
-            GridUpdate::SpawnCursor { pos: (x, y), .. } => cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH),
-            GridUpdate::DestroyCursor { id: _, pos: (x, y) } => {
-                cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH)
-            }
-            GridUpdate::UpdateStack { pos: (x, y), .. } => cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH),
-            GridUpdate::ToggleStringMode { id: _, pos: (x, y) } => {
-                cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH)
-            }
-            GridUpdate::ChangeDirection { pos: (x, y), .. } => {
-                cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH)
-            }
-            GridUpdate::ConsumeEnergy { pos: (x, y), .. } => cond(x / CHUNK_WIDTH, y / CHUNK_WIDTH),
+            _ => {}
         }
     }
 }

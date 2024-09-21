@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:html' as html;
 import 'dart:math';
@@ -6,6 +7,7 @@ import 'dart:typed_data';
 import 'package:client/chars.dart';
 import 'package:vector_math/vector_math.dart';
 import 'package:web/helpers.dart';
+import 'package:web_socket_channel/html.dart';
 
 class Camera {
   Vector2 center = Vector2(
@@ -43,7 +45,7 @@ class AtlasCache {
       context.textAlign = 'center';
       context.textBaseline = 'middle';
 
-      const flag_colors = [
+      const flagColors = [
         'lch(50.77% 78.04 0)',
         'lch(44.91% 78.09 36.11)',
         'lch(56.64% 78.04 60.56)',
@@ -60,7 +62,7 @@ class AtlasCache {
         for (var x = 0; x < 16; x++) {
           var c = x + y * 16;
           var newScale = scale - 2;
-          if (c >= 0x80 && c < 0x80 + flag_colors.length) {
+          if (c >= 0x80 && c < 0x80 + flagColors.length) {
             newScale = (newScale * 0.8).round();
           }
           context.font = '${newScale}px monospace';
@@ -71,10 +73,10 @@ class AtlasCache {
       }
       context.globalCompositeOperation = "source-atop";
 
-      for (var i = 0; i < flag_colors.length; i++) {
+      for (var i = 0; i < flagColors.length; i++) {
         final x = (i + 0x80) % 16;
         final y = (i + 0x80) ~/ 16;
-        context.fillStyle = flag_colors[i] as JSString;
+        context.fillStyle = flagColors[i] as JSString;
         context.fillRect(x * scale, y * scale, scale, scale);
       }
       context.globalCompositeOperation = "source-over";
@@ -101,30 +103,27 @@ class AtlasCache {
   }
 }
 
-const chunkWidth = 32;
-const chunkLimit = 10; // 335544320;
-var rand = Random();
+final directions = ['Up', 'Down', 'Left', 'Right'];
+
+class Cursor {
+  int x;
+  int y;
+  int direction;
+  Cursor(this.x, this.y, this.direction);
+}
 
 class Chunk {
   final int x;
   final int y;
-  final cells = Uint8List(chunkWidth * chunkWidth);
+  Uint8List? cells;
   final canvas = document.createElement('canvas') as CanvasElement;
   late int lastZoom;
+  var cursors = <int, Cursor>{};
 
-  Chunk(this.x, this.y) {
-    if (this.x == 0 && this.y == 0) {
-      for (var i = 0; i < cells.length; i++) {
-        cells[i] = i;
-      }
-    } else {
-      cells.fillRange(0, cells.length, 0x20);
-      for (var i = 0; i < cells.length; i++) {
-        if (rand.nextInt(100) < 5) {
-          cells[i] = rand.nextInt(256);
-        }
-      }
-    }
+  Chunk(this.x, this.y);
+
+  Uint8List getCells() {
+    return cells ??= Uint8List(chunkWidth * chunkWidth)..fillRange(0, chunkWidth * chunkWidth, 0x20);
   }
 
   void paint() {
@@ -162,12 +161,12 @@ class Chunk {
 
     if (atlas == null) {
       queueRender();
-    } else {
+    } else if (cells != null) {
       for (var y = 0; y < chunkWidth; y++) {
         for (var x = 0; x < chunkWidth; x++) {
           final cellX = x * zoom;
           final cellY = y * zoom;
-          var c = cells[x + y * chunkWidth];
+          var c = cells![x + y * chunkWidth];
           if (c == 0x20) {
             continue;
           }
@@ -193,6 +192,7 @@ class Chunk {
 
 class ChunkCache {
   final chunks = <(int, int), Chunk>{};
+  final cursors = <int, (int, int)>{};
 
   Chunk getChunk(int x, int y) {
     final key = (x, y);
@@ -206,36 +206,27 @@ class ChunkCache {
       final chunk = Chunk(x, y);
       chunk.lastZoom = camera.zoom;
       chunks[key] = chunk;
-      chunk.paint();
       dirtyChunks.remove(key);
       return chunk;
     }
   }
 
-  removeChunk(int x, int y) {
+  void removeChunk(int x, int y) {
     final key = (x, y);
     chunks.remove(key);
     dirtyChunks.remove(key);
+    for (final id in cursors.keys.toList()) {
+      cursors.remove(id);
+    }
   }
 }
-
-var camera = Camera();
-var atlasCache = AtlasCache();
-var chunkCache = ChunkCache();
-
-bool didRender = false;
-bool willRender = false;
-var dirtyChunks = <(int, int)>{};
 
 void queueRender() {
   if (!willRender) {
     willRender = true;
     html.window.requestAnimationFrame((time) {
       willRender = false;
-      if (!didRender) {
-        didRender = true;
-        render();
-      }
+      render();
     });
   }
 }
@@ -258,8 +249,8 @@ void render() {
 
   final topLeftChunkX = camera.topLeftChunkX.floor();
   final topLeftChunkY = camera.topLeftChunkY.floor();
-  final bottomRightCellX = camera.bottomRightChunkX.ceil();
-  final bottomRightCellY = camera.bottomRightChunkY.ceil();
+  final bottomRightChunkX = camera.bottomRightChunkX.ceil();
+  final bottomRightChunkY = camera.bottomRightChunkY.ceil();
   final offsetX =
       ((camera.topLeftChunkX - topLeftChunkX) * camera.scaledChunkWidth)
               .round() /
@@ -277,8 +268,31 @@ void render() {
   var highlightRadius = camera.zoom >= 20 ? 4 : camera.zoom >= 10 ? 2 : 0;
   var highlightPadding = camera.zoom >= 20 ? -2 : camera.zoom >= 10 ? -1 : 0;
 
-  for (var y = topLeftChunkY; y <= bottomRightCellY; y++) {
-    for (var x = topLeftChunkX; x <= bottomRightCellX; x++) {
+  for (var y = topLeftChunkY; y <= bottomRightChunkY; y++) {
+    for (var x = topLeftChunkX; x <= bottomRightChunkX; x++) {
+      if (x < 0 || y < 0 || x >= chunkLimit || y >= chunkLimit) {
+        continue;
+      }
+      final chunk = chunkCache.getChunk(x, y);
+      for (final cursor in chunk.cursors.values) {
+        print('cursor: ${cursor.x} ${cursor.y}');
+        final cursorX = (cursor.x - camera.topLeftX + x * chunkWidth) * camera.zoom;
+        final cursorY = (cursor.y - camera.topLeftY + y * chunkWidth) * camera.zoom;
+        context.fillStyle = 'lch(41.91% 84.81 288 / 50.46%)' as JSString;
+        final path = Path2D();
+        path.roundRect(
+            cursorX + 1,
+            cursorY + 1,
+            camera.zoom - 2,
+            camera.zoom - 2,
+            [max(0, highlightRadius - 1)] as JSObject);
+        context.fill(path as JSObject);
+      }
+    }
+  }
+
+  for (var y = topLeftChunkY; y <= bottomRightChunkY; y++) {
+    for (var x = topLeftChunkX; x <= bottomRightChunkX; x++) {
       final chunkX = ((x - topLeftChunkX) - offsetX) * camera.scaledChunkWidth;
       final chunkY = ((y - topLeftChunkY) - offsetY) * camera.scaledChunkWidth;
       if (x < 0 || y < 0 || x >= chunkLimit || y >= chunkLimit) {
@@ -292,15 +306,6 @@ void render() {
         chunk.paint();
       }
       context.drawImage(chunk.canvas as JSObject, chunkX, chunkY);
-    }
-  }
-
-  for (final key in chunkCache.chunks.keys) {
-    if (key.$1 < topLeftChunkX - 4 ||
-        key.$1 > bottomRightCellX + 4 ||
-        key.$2 < topLeftChunkY - 4 ||
-        key.$2 > bottomRightCellY + 4) {
-      chunkCache.removeChunk(key.$1, key.$2);
     }
   }
 
@@ -342,16 +347,131 @@ void render() {
         [highlightRadius] as JSObject);
     context.stroke(path);
   }
+
+  for (final key in chunkCache.chunks.keys.toList()) {
+    if (key.$1 < topLeftChunkX - 4 ||
+        key.$1 > bottomRightChunkX + 4 ||
+        key.$2 < topLeftChunkY - 4 ||
+        key.$2 > bottomRightChunkY + 4) {
+      chunkCache.removeChunk(key.$1, key.$2);
+      if (lastSubscribedChunks.contains(key)) {
+        lastSubscribedChunks.remove(key);
+        channel!.sink.add(jsonEncode({'UnsubscribeChunk': {'x': key.$1, 'y': key.$2}}));
+      }
+    } else if (!lastSubscribedChunks.contains(key)) {
+      lastSubscribedChunks.add(key);
+      channel!.sink.add(jsonEncode({'SubscribeChunk': {'x': key.$1, 'y': key.$2}}));
+    }
+  }
 }
 
-
+const chunkWidth = 32;
+const chunkLimit = 4; // 335544320;
+var rand = Random();
+var camera = Camera();
+var atlasCache = AtlasCache();
+var chunkCache = ChunkCache();
+bool didRender = false;
+bool willRender = false;
+var dirtyChunks = <(int, int)>{};
+HtmlWebSocketChannel? channel;
+var lastSubscribedChunks = <(int, int)>{};
 var panning = false;
 var selecting = false;
-(int, int)? hoverCell = (0, 0);
+(int, int)? hoverCell;
 (int, int)? selectStartCell;
 (int, int)? selectEndCell;
 
+void handleMessage(dynamic messageData) {
+  if (messageData case {'ChunkData': {'x': num x, 'y': num y, 'data': String data}}) {
+    final chunk = chunkCache.chunks[(x as int, y as int)];
+    if (chunk != null) {
+      chunk.cells = base64.decode(data);
+      dirtyChunks.add((x, y));
+      queueRender();
+    }
+  } else if (messageData case {'Update': {'action': dynamic action, 'x': int x, 'y': int y}}) {
+    final chunkX = x ~/ chunkWidth;
+    final chunkY = y ~/ chunkWidth;
+    final localX = x % chunkWidth;
+    final localY = y % chunkWidth;
+    if (action case {'UpdateCell': {'c': int c}}) {
+      final chunk = chunkCache.getChunk(chunkX, chunkY);
+      chunk.getCells()[localX + localY * chunkWidth] = c;
+      dirtyChunks.add((chunkX, chunkY));
+      queueRender();
+    } else if (action case {'SpawnCursor': {'id': int id, 'direction': String directionStr}}) {
+      final chunk = chunkCache.getChunk(chunkX, chunkY);
+      final direction = directions.indexOf(directionStr);
+      final cursor = chunk.cursors.putIfAbsent(id, () => Cursor(localX, localY, direction));
+      cursor.x = localX;
+      cursor.y = localY;
+      cursor.direction = direction;
+      chunkCache.cursors[id] = (chunkX, chunkY);
+      queueRender();
+    } else if (action case {'MoveCursor': {'id': int id, 'to_x': int toX, 'to_y': int toY}}) {
+      final toChunkX = toX ~/ chunkWidth;
+      final toChunkY = toY ~/ chunkWidth;
+      final chunk = chunkCache.getChunk(chunkX, chunkY);
+      chunkCache.cursors[id] = (toChunkX, toChunkY);
+      if (chunkX == toChunkX || chunkY == toChunkY) {
+        final cursor = chunk.cursors.putIfAbsent(id, () => Cursor(toX % chunkWidth, toY % chunkWidth, 0));
+        cursor.x = toX % chunkWidth;
+        cursor.y = toY % chunkWidth;
+      } else {
+        chunk.cursors.remove(id);
+        final newChunk = chunkCache.getChunk(toChunkX, toChunkY);
+        final cursor = chunk.cursors.remove(id) ?? Cursor(toX % chunkWidth, toY % chunkWidth, 0);
+        newChunk.cursors[id] = cursor;
+      }
+      queueRender();
+    } else if (action case {'DestroyCursor': {'id': int id}}) {
+      final pos = chunkCache.cursors.remove(id);
+      if (pos != null) {
+        final chunk = chunkCache.getChunk(pos.$1, pos.$2);
+        chunk.cursors.remove(id);
+        queueRender();
+      }
+    } else {
+      print('Unknown action');
+    }
+  } else {
+    print('Unknown message');
+  }
+}
+
+void connect() {
+  channel = HtmlWebSocketChannel.connect('ws://localhost:3000/ws');
+  channel!.stream.listen((message) {
+    if (message is! String) {
+      return;
+    }
+    final messageData = jsonDecode(message);
+    print(JsonEncoder.withIndent('  ').convert(messageData));
+    if (messageData is List) {
+      for (final message in messageData) {
+        handleMessage(message);
+      }
+    } else {
+      handleMessage(messageData);
+    }
+  }, onDone: () {
+    final delay = rand.nextInt(9) + 1;
+    print('Channel closed, reconnecting in $delay seconds');
+    channel = null;
+    Future.delayed(Duration(seconds: delay), connect);
+  }, onError: (e) {
+    print('Channel error: $e');
+  });
+  channel!.ready.then((_) {
+    print('Connected');
+    lastSubscribedChunks.clear();
+    render();
+  });
+}
+
 void main() {
+  connect();
   render();
   html.window.onResize.listen((event) {
     render();
@@ -400,14 +520,13 @@ void main() {
     final cellX = (x / camera.zoom + camera.topLeftX).floor();
     final cellY = (y / camera.zoom + camera.topLeftY).floor();
     if (hoverCell != (cellX, cellY)) {
-      hoverCell = (cellX, cellY);
-
-      if (selecting) {
-        selectEndCell = hoverCell;
+      if (cellX >= 0 && cellY >= 0 && cellX < chunkWidth * chunkLimit && cellY < chunkWidth * chunkLimit) {
+        hoverCell = (cellX, cellY);
+        if (selecting) {
+          selectEndCell = hoverCell;
+        }
         render();
       }
-
-      render();
     }
   });
   html.window.onWheel.listen((event) {

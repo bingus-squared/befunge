@@ -1,4 +1,4 @@
-use crate::sim::{Direction, Grid, GridUpdate, CHUNK_WIDTH};
+use crate::sim::{Direction, Grid, GridUpdate, GridUpdateAction, CHUNK_WIDTH};
 use rand::prelude::SmallRng;
 use rand::{Rng, SeedableRng};
 
@@ -19,16 +19,20 @@ impl SimulationStep<'_> {
 
         if cursor.string_mode {
             match chunk.get(cursor.x, cursor.y) {
-                b'"' => self.updates.push(GridUpdate::ToggleStringMode {
-                    id,
-                    pos: (abs_x, abs_y),
+                b'"' => self.updates.push(GridUpdate {
+                    x: abs_x,
+                    y: abs_y,
+                    action: GridUpdateAction::ToggleStringMode { id },
                 }),
                 c => {
-                    self.updates.push(GridUpdate::UpdateStack {
-                        id,
-                        pos: (abs_x, abs_y),
-                        pop: 0,
-                        push: vec![c as i64],
+                    self.updates.push(GridUpdate {
+                        x: abs_x,
+                        y: abs_y,
+                        action: GridUpdateAction::UpdateStack {
+                            id,
+                            pop: 0,
+                            push: vec![c as i64],
+                        },
                     });
                 }
             }
@@ -36,34 +40,34 @@ impl SimulationStep<'_> {
             match chunk.get(cursor.x, cursor.y) {
                 b'^' => {
                     direction = Direction::Up;
-                    self.updates.push(GridUpdate::ChangeDirection {
-                        id,
-                        pos: (abs_x, abs_y),
-                        direction,
+                    self.updates.push(GridUpdate {
+                        x: abs_x,
+                        y: abs_y,
+                        action: GridUpdateAction::ChangeDirection { id, direction },
                     });
                 }
                 b'v' => {
                     direction = Direction::Down;
-                    self.updates.push(GridUpdate::ChangeDirection {
-                        id,
-                        pos: (abs_x, abs_y),
-                        direction,
+                    self.updates.push(GridUpdate {
+                        x: abs_x,
+                        y: abs_y,
+                        action: GridUpdateAction::ChangeDirection { id, direction },
                     });
                 }
                 b'<' => {
                     direction = Direction::Left;
-                    self.updates.push(GridUpdate::ChangeDirection {
-                        id,
-                        pos: (abs_x, abs_y),
-                        direction,
+                    self.updates.push(GridUpdate {
+                        x: abs_x,
+                        y: abs_y,
+                        action: GridUpdateAction::ChangeDirection { id, direction },
                     });
                 }
                 b'>' => {
                     direction = Direction::Right;
-                    self.updates.push(GridUpdate::ChangeDirection {
-                        id,
-                        pos: (abs_x, abs_y),
-                        direction,
+                    self.updates.push(GridUpdate {
+                        x: abs_x,
+                        y: abs_y,
+                        action: GridUpdateAction::ChangeDirection { id, direction },
                     });
                 }
                 b'?' => {
@@ -74,10 +78,10 @@ impl SimulationStep<'_> {
                         3 => Direction::Right,
                         _ => unreachable!(),
                     };
-                    self.updates.push(GridUpdate::ChangeDirection {
-                        id,
-                        pos: (abs_x, abs_y),
-                        direction,
+                    self.updates.push(GridUpdate {
+                        x: abs_x,
+                        y: abs_y,
+                        action: GridUpdateAction::ChangeDirection { id, direction },
                     });
                 }
                 _ => {}
@@ -85,34 +89,36 @@ impl SimulationStep<'_> {
         }
 
         if cursor.energy == 0 {
-            self.updates.push(GridUpdate::DestroyCursor {
-                id,
-                pos: (abs_x, abs_y),
+            self.updates.push(GridUpdate {
+                x: abs_x,
+                y: abs_y,
+                action: GridUpdateAction::DestroyCursor { id },
             });
             return;
         }
 
-        self.updates.push(GridUpdate::MoveCursor {
-            id,
-            pos: (abs_x, abs_y),
-            to: (
-                match direction {
+        self.updates.push(GridUpdate {
+            x: abs_x,
+            y: abs_y,
+            action: GridUpdateAction::MoveCursor {
+                id,
+                to_x: match direction {
                     Direction::Left => abs_x - 1,
                     Direction::Right => abs_x + 1,
                     _ => abs_x,
                 },
-                match direction {
+                to_y: match direction {
                     Direction::Up => abs_y - 1,
                     Direction::Down => abs_y + 1,
                     _ => abs_y,
                 },
-            ),
+            },
         });
 
-        self.updates.push(GridUpdate::ConsumeEnergy {
-            id,
-            pos: (abs_x, abs_y),
-            energy: 1,
+        self.updates.push(GridUpdate {
+            x: abs_x,
+            y: abs_y,
+            action: GridUpdateAction::ConsumeEnergy { id, energy: 1 },
         });
     }
 
