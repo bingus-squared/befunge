@@ -8,7 +8,7 @@ use std::fmt::Display;
 const CHUNK_WIDTH: usize = 32;
 const CHUNK_LIMIT: usize = 10; // 335544320;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Cursor {
     // Position is relative to the chunk
     pub x: usize,

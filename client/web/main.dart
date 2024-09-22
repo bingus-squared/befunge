@@ -123,7 +123,8 @@ class Chunk {
   Chunk(this.x, this.y);
 
   Uint8List getCells() {
-    return cells ??= Uint8List(chunkWidth * chunkWidth)..fillRange(0, chunkWidth * chunkWidth, 0x20);
+    return cells ??= Uint8List(chunkWidth * chunkWidth)
+      ..fillRange(0, chunkWidth * chunkWidth, 0x20);
   }
 
   void paint() {
@@ -265,8 +266,16 @@ void render() {
   // context.drawImage(chunkCache.getChunk(0, 0).canvas as JSObject, 0, 0); return;
 
   var highlightWidth = camera.zoom >= 20 ? 2 : 1;
-  var highlightRadius = camera.zoom >= 20 ? 4 : camera.zoom >= 10 ? 2 : 0;
-  var highlightPadding = camera.zoom >= 20 ? -2 : camera.zoom >= 10 ? -1 : 0;
+  var highlightRadius = camera.zoom >= 20
+      ? 4
+      : camera.zoom >= 10
+          ? 2
+          : 0;
+  var highlightPadding = camera.zoom >= 20
+      ? -2
+      : camera.zoom >= 10
+          ? -1
+          : 0;
 
   for (var y = topLeftChunkY; y <= bottomRightChunkY; y++) {
     for (var x = topLeftChunkX; x <= bottomRightChunkX; x++) {
@@ -276,16 +285,14 @@ void render() {
       final chunk = chunkCache.getChunk(x, y);
       for (final cursor in chunk.cursors.values) {
         print('cursor: ${cursor.x} ${cursor.y}');
-        final cursorX = (cursor.x - camera.topLeftX + x * chunkWidth) * camera.zoom;
-        final cursorY = (cursor.y - camera.topLeftY + y * chunkWidth) * camera.zoom;
+        final cursorX =
+            (cursor.x - camera.topLeftX + x * chunkWidth) * camera.zoom;
+        final cursorY =
+            (cursor.y - camera.topLeftY + y * chunkWidth) * camera.zoom;
         context.fillStyle = 'lch(41.91% 84.81 288 / 50.46%)' as JSString;
         final path = Path2D();
-        path.roundRect(
-            cursorX + 1,
-            cursorY + 1,
-            camera.zoom - 2,
-            camera.zoom - 2,
-            [max(0, highlightRadius - 1)] as JSObject);
+        path.roundRect(cursorX + 1, cursorY + 1, camera.zoom - 2,
+            camera.zoom - 2, [max(0, highlightRadius - 1)] as JSObject);
         context.fill(path as JSObject);
       }
     }
@@ -356,11 +363,15 @@ void render() {
       chunkCache.removeChunk(key.$1, key.$2);
       if (lastSubscribedChunks.contains(key)) {
         lastSubscribedChunks.remove(key);
-        channel!.sink.add(jsonEncode({'UnsubscribeChunk': {'x': key.$1, 'y': key.$2}}));
+        channel!.sink.add(jsonEncode({
+          'UnsubscribeChunk': {'x': key.$1, 'y': key.$2}
+        }));
       }
     } else if (!lastSubscribedChunks.contains(key)) {
       lastSubscribedChunks.add(key);
-      channel!.sink.add(jsonEncode({'SubscribeChunk': {'x': key.$1, 'y': key.$2}}));
+      channel!.sink.add(jsonEncode({
+        'SubscribeChunk': {'x': key.$1, 'y': key.$2}
+      }));
     }
   }
 }
@@ -383,14 +394,29 @@ var selecting = false;
 (int, int)? selectEndCell;
 
 void handleMessage(dynamic messageData) {
-  if (messageData case {'ChunkData': {'x': num x, 'y': num y, 'data': String data}}) {
+  if (messageData
+      case {
+        'ChunkData': {
+          'x': num x,
+          'y': num y,
+          'data': String data,
+          'cursors': Map<int, Map<String, dynamic>> cursors
+        }
+      }) {
     final chunk = chunkCache.chunks[(x as int, y as int)];
     if (chunk != null) {
       chunk.cells = base64.decode(data);
+      chunk.cursors.clear();
+      for (final entry in cursors.entries) {
+        final cursor = entry.value;
+        final direction = directions.indexOf(cursor['direction']);
+        chunk.cursors[entry.key] = Cursor(cursor['x'], cursor['y'], direction);
+      }
       dirtyChunks.add((x, y));
       queueRender();
     }
-  } else if (messageData case {'Update': {'action': dynamic action, 'x': int x, 'y': int y}}) {
+  } else if (messageData
+      case {'Update': {'action': dynamic action, 'x': int x, 'y': int y}}) {
     final chunkX = x ~/ chunkWidth;
     final chunkY = y ~/ chunkWidth;
     final localX = x % chunkWidth;
@@ -400,28 +426,35 @@ void handleMessage(dynamic messageData) {
       chunk.getCells()[localX + localY * chunkWidth] = c;
       dirtyChunks.add((chunkX, chunkY));
       queueRender();
-    } else if (action case {'SpawnCursor': {'id': int id, 'direction': String directionStr}}) {
+    } else if (action
+        case {
+          'SpawnCursor': {'id': int id, 'direction': String directionStr}
+        }) {
       final chunk = chunkCache.getChunk(chunkX, chunkY);
       final direction = directions.indexOf(directionStr);
-      final cursor = chunk.cursors.putIfAbsent(id, () => Cursor(localX, localY, direction));
+      final cursor = chunk.cursors
+          .putIfAbsent(id, () => Cursor(localX, localY, direction));
       cursor.x = localX;
       cursor.y = localY;
       cursor.direction = direction;
       chunkCache.cursors[id] = (chunkX, chunkY);
       queueRender();
-    } else if (action case {'MoveCursor': {'id': int id, 'to_x': int toX, 'to_y': int toY}}) {
+    } else if (action
+        case {'MoveCursor': {'id': int id, 'to_x': int toX, 'to_y': int toY}}) {
       final toChunkX = toX ~/ chunkWidth;
       final toChunkY = toY ~/ chunkWidth;
       final chunk = chunkCache.getChunk(chunkX, chunkY);
       chunkCache.cursors[id] = (toChunkX, toChunkY);
       if (chunkX == toChunkX || chunkY == toChunkY) {
-        final cursor = chunk.cursors.putIfAbsent(id, () => Cursor(toX % chunkWidth, toY % chunkWidth, 0));
+        final cursor = chunk.cursors.putIfAbsent(
+            id, () => Cursor(toX % chunkWidth, toY % chunkWidth, 0));
         cursor.x = toX % chunkWidth;
         cursor.y = toY % chunkWidth;
       } else {
         chunk.cursors.remove(id);
         final newChunk = chunkCache.getChunk(toChunkX, toChunkY);
-        final cursor = chunk.cursors.remove(id) ?? Cursor(toX % chunkWidth, toY % chunkWidth, 0);
+        final cursor = chunk.cursors.remove(id) ??
+            Cursor(toX % chunkWidth, toY % chunkWidth, 0);
         newChunk.cursors[id] = cursor;
       }
       queueRender();
@@ -520,7 +553,10 @@ void main() {
     final cellX = (x / camera.zoom + camera.topLeftX).floor();
     final cellY = (y / camera.zoom + camera.topLeftY).floor();
     if (hoverCell != (cellX, cellY)) {
-      if (cellX >= 0 && cellY >= 0 && cellX < chunkWidth * chunkLimit && cellY < chunkWidth * chunkLimit) {
+      if (cellX >= 0 &&
+          cellY >= 0 &&
+          cellX < chunkWidth * chunkLimit &&
+          cellY < chunkWidth * chunkLimit) {
         hoverCell = (cellX, cellY);
         if (selecting) {
           selectEndCell = hoverCell;

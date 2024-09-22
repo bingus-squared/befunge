@@ -1,6 +1,6 @@
 use crate::sim::step::Simulation;
 use crate::sim::subscription::{Subscriber, SubscriptionManager};
-use crate::sim::{Direction, Grid, GridUpdate, GridUpdateAction};
+use crate::sim::{Cursor, Direction, Grid, GridUpdate, GridUpdateAction};
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
@@ -9,6 +9,7 @@ use axum::routing::get;
 use base64::prelude::BASE64_STANDARD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::ops::Deref;
@@ -49,7 +50,12 @@ pub async fn start_http_server(port: u16, state: Arc<AppState>) -> Result<()> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum BfMessage {
-    ChunkData { x: usize, y: usize, data: String },
+    ChunkData {
+        x: usize,
+        y: usize,
+        data: String,
+        cursors: HashMap<usize, Cursor>,
+    },
     Update(GridUpdate),
 }
 
@@ -114,7 +120,13 @@ async fn handle_client_message(
                 let data = BASE64_STANDARD.encode(&chunk.cells);
                 socket
                     .send(Message::Text(
-                        serde_json::to_string(&BfMessage::ChunkData { x, y, data }).unwrap(),
+                        serde_json::to_string(&BfMessage::ChunkData {
+                            x,
+                            y,
+                            data,
+                            cursors: chunk.cursors.clone(),
+                        })
+                        .unwrap(),
                     ))
                     .await
                     .unwrap();
