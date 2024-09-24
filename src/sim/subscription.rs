@@ -6,20 +6,20 @@ pub trait Subscriber: Send {
     fn notify(&self, updates: Vec<GridUpdate>);
 }
 
-pub struct SubscriptionManager {
-    pub subscribers: Slab<(HashSet<(usize, usize)>, Box<dyn Subscriber>)>,
+pub struct SubscriptionManager<S: Subscriber> {
+    pub subscribers: Slab<(HashSet<(usize, usize)>, S)>,
     pub chunks: HashMap<(usize, usize), HashSet<usize>>,
 }
 
-impl SubscriptionManager {
-    pub fn new() -> SubscriptionManager {
+impl<S: Subscriber> SubscriptionManager<S> {
+    pub fn new() -> SubscriptionManager<S> {
         SubscriptionManager {
             subscribers: Slab::new(),
             chunks: HashMap::new(),
         }
     }
 
-    pub fn subscribe(&mut self, subscriber: Box<dyn Subscriber>) -> usize {
+    pub fn subscribe(&mut self, subscriber: S) -> usize {
         let id = self.subscribers.insert((HashSet::new(), subscriber));
         id
     }

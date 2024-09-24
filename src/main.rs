@@ -22,7 +22,7 @@ mod sim;
 pub struct AppState {
     pub tick_rate: Mutex<u64>,
     pub simulation: Mutex<Simulation>,
-    pub subscription_manager: Mutex<SubscriptionManager>,
+    pub subscription_manager: Mutex<SubscriptionManager<WebsocketSubscriber>>,
 }
 
 pub async fn start_http_server(port: u16, state: Arc<AppState>) -> Result<()> {
@@ -65,7 +65,7 @@ enum BfClientMessage {
     UnsubscribeChunk { x: usize, y: usize },
 }
 
-struct WebsocketSubscriber {
+pub struct WebsocketSubscriber {
     tx: mpsc::Sender<String>,
 }
 
@@ -93,7 +93,7 @@ async fn ws_handler(
     ws.on_upgrade(move |socket| async move {
         let (tx, rx) = mpsc::channel(100);
         let mut subscription_manager = state.subscription_manager.lock().await;
-        let id = subscription_manager.subscribe(Box::new(WebsocketSubscriber { tx }));
+        let id = subscription_manager.subscribe(WebsocketSubscriber { tx });
         drop(subscription_manager);
         match handle_socket(socket, addr, id, rx, state.deref().clone()).await {
             Ok(_) => (),

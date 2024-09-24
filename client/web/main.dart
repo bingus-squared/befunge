@@ -289,7 +289,7 @@ void render() {
             (cursor.x - camera.topLeftX + x * chunkWidth) * camera.zoom;
         final cursorY =
             (cursor.y - camera.topLeftY + y * chunkWidth) * camera.zoom;
-        context.fillStyle = 'lch(41.91% 84.81 288 / 50.46%)' as JSString;
+        context.fillStyle = 'lch(85.06% 99.08 82.66 / 80.83%)' as JSString;
         final path = Path2D();
         path.roundRect(cursorX + 1, cursorY + 1, camera.zoom - 2,
             camera.zoom - 2, [max(0, highlightRadius - 1)] as JSObject);
@@ -394,13 +394,14 @@ var selecting = false;
 (int, int)? selectEndCell;
 
 void handleMessage(dynamic messageData) {
+  print(JsonEncoder.withIndent('  ').convert(messageData));
   if (messageData
       case {
         'ChunkData': {
           'x': num x,
           'y': num y,
           'data': String data,
-          'cursors': Map<int, Map<String, dynamic>> cursors
+          'cursors': dynamic cursors
         }
       }) {
     final chunk = chunkCache.chunks[(x as int, y as int)];
@@ -410,7 +411,7 @@ void handleMessage(dynamic messageData) {
       for (final entry in cursors.entries) {
         final cursor = entry.value;
         final direction = directions.indexOf(cursor['direction']);
-        chunk.cursors[entry.key] = Cursor(cursor['x'], cursor['y'], direction);
+        chunk.cursors[int.parse(entry.key)] = Cursor(cursor['x'], cursor['y'], direction);
       }
       dirtyChunks.add((x, y));
       queueRender();
@@ -480,7 +481,6 @@ void connect() {
       return;
     }
     final messageData = jsonDecode(message);
-    print(JsonEncoder.withIndent('  ').convert(messageData));
     if (messageData is List) {
       for (final message in messageData) {
         handleMessage(message);

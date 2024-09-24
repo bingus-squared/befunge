@@ -150,6 +150,7 @@ impl Simulation {
         };
         step.step_grid();
         let updates = step.updates;
+        self.grid.ticks += 1;
         for update in updates.iter() {
             println!("{:?}", update);
             self.grid.apply(update.clone());

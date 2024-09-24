@@ -27,6 +27,7 @@ pub struct Chunk {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Grid {
+    pub ticks: usize,
     pub chunks: HashMap<(usize, usize), Chunk>,
     pub cursor_chunks: HashMap<usize, (usize, usize)>,
 }
@@ -104,6 +105,7 @@ impl Chunk {
 impl Grid {
     pub fn new() -> Grid {
         Grid {
+            ticks: 0,
             chunks: HashMap::new(),
             cursor_chunks: HashMap::new(),
         }
