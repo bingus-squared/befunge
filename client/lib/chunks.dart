@@ -6,7 +6,22 @@ import 'package:web/helpers.dart';
 import 'rendering.dart';
 import 'state.dart';
 
-final directions = ['Up', 'Down', 'Left', 'Right'];
+final directions = ['Right', 'Down', 'Left', 'Up'];
+
+(int, int) dirNormal(int? direction) {
+  switch (direction) {
+    case 0:
+      return (1, 0);
+    case 1:
+      return (0, 1);
+    case 2:
+      return (-1, 0);
+    case 3:
+      return (0, -1);
+    default:
+      return (0, 0);
+  }
+}
 
 class Cursor {
   int x;

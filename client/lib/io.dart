@@ -14,30 +14,54 @@ enum InputMode {
 }
 
 void setInputMode(InputMode mode) {
-  inputMode = mode;
-  final commandInput = document.querySelector('#command-input') as html.InputElement;
-  final commandBar = document.querySelector('#command-bar-outer') as html.DivElement;
+  if (inputMode == mode) {
+    return;
+  }
+  final commandInput =
+      document.querySelector('#command-input') as html.InputElement;
+  final commandBar =
+      document.querySelector('#command-bar-outer') as html.DivElement;
   switch (mode) {
     case InputMode.normal:
       commandInput.blur();
       commandBar.style.display = 'none';
-    case InputMode.insert:
-      commandInput.blur();
-      hideHover = true;
+      inputMode = mode;
       render();
+    case InputMode.insert:
+      selectStartCell ??= hoverCell;
+      if (selectStartCell == null) {
+        setOutput('no cell selected');
+        return;
+      }
+      selectEndCell = selectStartCell;
+      commandInput.blur();
       commandBar.style.display = 'none';
+      hideHover = true;
+      pivotFrom = null;
+      didInsert = false;
+      selecting = false;
+      inputMode = mode;
+      render();
     case InputMode.command:
       commandBar.style.display = 'block';
       commandInput.focus();
       hideHover = true;
+      inputMode = mode;
       render();
   }
 }
 
 void clearOutput() {
-  final outputDiv = document.querySelector('#command-output') as html.DivElement;
+  final outputDiv =
+      document.querySelector('#command-output') as html.DivElement;
   outputDiv.innerHtml = '';
   outputDiv.style.display = 'none';
+}
+
+bool hasOutput() {
+  final outputDiv =
+      document.querySelector('#command-output') as html.DivElement;
+  return outputDiv.style.display != 'none';
 }
 
 void setOutput(String output) {
@@ -45,7 +69,8 @@ void setOutput(String output) {
     clearOutput();
     return;
   }
-  final outputDiv = document.querySelector('#command-output') as html.DivElement;
+  final outputDiv =
+      document.querySelector('#command-output') as html.DivElement;
   outputDiv.innerHtml = '';
   final pre = document.createElement('pre') as html.PreElement;
   pre.text = output;
@@ -170,12 +195,36 @@ void printSel() {
   }
   final start = selectStartCell!;
   final end = selectEndCell!;
-  if (start == end) {
-    setOutput('> sel ${start.$1},${start.$2}');
+  if (inputMode == InputMode.insert) {
+    setOutput('ins ${start.$1},${start.$2}');
+  } else if (start == end) {
+    setOutput('sel ${start.$1},${start.$2}');
   } else {
-    final topLeft = (start.$1 < end.$1 ? start.$1 : end.$1, start.$2 < end.$2 ? start.$2 : end.$2);
-    final bottomRight = (start.$1 > end.$1 ? start.$1 : end.$1, start.$2 > end.$2 ? start.$2 : end.$2);
-    setOutput('> sel ${topLeft.$1},${topLeft.$2} ${bottomRight.$1 - topLeft.$1 + 1},${bottomRight.$2 - topLeft.$2 + 1}');
+    final topLeft = (
+      start.$1 < end.$1 ? start.$1 : end.$1,
+      start.$2 < end.$2 ? start.$2 : end.$2
+    );
+    final bottomRight = (
+      start.$1 > end.$1 ? start.$1 : end.$1,
+      start.$2 > end.$2 ? start.$2 : end.$2
+    );
+    setOutput(
+        'sel ${topLeft.$1},${topLeft.$2} ${bottomRight.$1 - topLeft.$1 + 1},${bottomRight.$2 - topLeft.$2 + 1}');
+  }
+}
+
+void moveInsert(int dir) {
+  final dt = dirNormal(dir);
+  final newCell = (
+    selectStartCell!.$1 + dt.$1,
+    selectStartCell!.$2 + dt.$2,
+  );
+  if (newCell.$1 >= 0 &&
+      newCell.$2 >= 0 &&
+      newCell.$1 < chunkWidth * chunkLimit &&
+      newCell.$2 < chunkWidth * chunkLimit) {
+    selectStartCell = newCell;
+    selectEndCell = newCell;
   }
 }
 
@@ -189,7 +238,8 @@ void start() {
   });
 
   final canvas = document.querySelector('#output') as CanvasElement;
-  final commandInput = document.querySelector('#command-input') as html.InputElement;
+  final commandInput =
+      document.querySelector('#command-input') as html.InputElement;
   void updateCursor() {
     canvas.style.cursor = panning ? 'grabbing' : 'pointer';
   }
@@ -209,11 +259,22 @@ void start() {
     }
     event.preventDefault();
     if (event.button == 0) {
-      selectStartCell = hoverCell;
-      selectEndCell = hoverCell;
-      selecting = true;
-      printSel();
-      render();
+      final x = event.offset.x;
+      final y = event.offset.y;
+      final cellX = (x / camera.zoom + camera.topLeftX).floor();
+      final cellY = (y / camera.zoom + camera.topLeftY).floor();
+      if (cellX >= 0 &&
+          cellY >= 0 &&
+          cellX < chunkWidth * chunkLimit &&
+          cellY < chunkWidth * chunkLimit) {
+        selectStartCell = (cellX, cellY);
+        selectEndCell = (cellX, cellY);
+        didInsert = false;
+        pivotFrom = null;
+        selecting = true;
+        printSel();
+        render();
+      }
     } else if (event.button == 1) {
       panning = true;
       updateCursor();
@@ -258,7 +319,14 @@ void start() {
           cellY < chunkWidth * chunkLimit) {
         hoverCell = (cellX, cellY);
         if (selecting) {
-          selectEndCell = hoverCell;
+          if (inputMode == InputMode.insert) {
+            selectStartCell = hoverCell;
+            selectEndCell = hoverCell;
+            didInsert = false;
+            pivotFrom = null;
+          } else {
+            selectEndCell = hoverCell;
+          }
           printSel();
         }
       }
@@ -291,6 +359,7 @@ void start() {
     }
     if (key == 'i') {
       setInputMode(InputMode.insert);
+      printSel();
     } else if (key == ':') {
       setInputMode(InputMode.command);
     }
@@ -299,19 +368,95 @@ void start() {
   html.window.onKeyDown.listen((event) {
     print('Key down: ${event.key}');
     final key = event.key;
+    if (key == null) {
+      return;
+    }
     if (key == 'Escape') {
       if (inputMode != InputMode.normal) {
         setInputMode(InputMode.normal);
-        setOutput('normal mode');
-      } else {
+        printSel();
+      } else if (hasOutput()) {
         clearOutput();
+      } else {
+        selectStartCell = null;
+        selectEndCell = null;
+        printSel();
       }
       html.window.getSelection()?.removeAllRanges();
       hideHover = true;
       selecting = false;
-      selectStartCell = null;
-      selectEndCell = null;
       render();
+    } else if (inputMode == InputMode.insert) {
+      if (key == 'ArrowRight' ||
+          key == 'ArrowDown' ||
+          key == 'ArrowLeft' ||
+          key == 'ArrowUp') {
+        late int dir;
+        if (key == 'ArrowRight') {
+          dir = 0;
+        } else if (key == 'ArrowDown') {
+          dir = 1;
+        } else if (key == 'ArrowLeft') {
+          dir = 2;
+        } else if (key == 'ArrowUp') {
+          dir = 3;
+        }
+        if (!event.shiftKey) {
+          if (!didInsert) {
+            moveInsert(dir);
+            insertDirection = dir;
+          } else {
+            pivotFrom ??= (selectStartCell!.$1, selectStartCell!.$2, insertDirection!);
+            insertDirection = dir;
+            final reversePivot = (pivotFrom!.$3 + 2) % 4;
+            selectStartCell = (pivotFrom!.$1, pivotFrom!.$2);
+            selectEndCell = (pivotFrom!.$1, pivotFrom!.$2);
+            if (dir == reversePivot) {
+              moveInsert(pivotFrom!.$3);
+            }
+          }
+        } else {
+          pivotFrom = null;
+          moveInsert(dir);
+        }
+        render();
+      } else {
+        pivotFrom = null;
+        if (key == 'Backspace') {
+          if (!event.shiftKey) {
+            final chunkX = selectStartCell!.$1 ~/ chunkWidth;
+            final chunkY = selectStartCell!.$2 ~/ chunkWidth;
+            final localX = selectStartCell!.$1 % chunkWidth;
+            final localY = selectStartCell!.$2 % chunkWidth;
+            final chunk = chunkCache.getChunk(chunkX, chunkY);
+            chunk.getCells()[localX + localY * chunkWidth] = 0x20;
+            dirtyChunks.add((chunkX, chunkY));
+          }
+          moveInsert((insertDirection! + 2) % 4);
+          didInsert = true;
+          render();
+        } else {
+          // Printable characters
+          if (key.length == 1) {
+            final c = key.codeUnitAt(0);
+            if (c >= 32 && c < 127) {
+              if (didInsert) {
+                moveInsert(insertDirection!);
+              } else {
+                didInsert = true;
+              }
+              final chunkX = selectStartCell!.$1 ~/ chunkWidth;
+              final chunkY = selectStartCell!.$2 ~/ chunkWidth;
+              final localX = selectStartCell!.$1 % chunkWidth;
+              final localY = selectStartCell!.$2 % chunkWidth;
+              final chunk = chunkCache.getChunk(chunkX, chunkY);
+              chunk.getCells()[localX + localY * chunkWidth] = c;
+              dirtyChunks.add((chunkX, chunkY));
+              render();
+            }
+          }
+        }
+      }
     }
   });
   commandInput.onFocus.listen((event) {

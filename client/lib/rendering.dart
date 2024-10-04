@@ -4,6 +4,7 @@ import 'dart:html' as html;
 import 'dart:math';
 
 import 'package:client/chars.dart';
+import 'package:client/io.dart';
 import 'package:vector_math/vector_math.dart';
 import 'package:web/helpers.dart';
 
@@ -126,6 +127,7 @@ void render() {
   camera.lastHeight = height.toDouble();
   final context = canvas.context2D;
 
+  context.reset();
   context.fillStyle = 'rgb(222, 233, 255)' as JSString;
   context.fillRect(0, 0, width, height);
 
@@ -146,9 +148,13 @@ void render() {
 
   // context.drawImage(chunkCache.getChunk(0, 0).canvas as JSObject, 0, 0); return;
 
-  var highlightWidth = camera.zoom >= 20 ? 2 : 1;
+  var highlightWidth = camera.zoom >= 40
+      ? camera.zoom / 20
+      : camera.zoom >= 20
+          ? 2
+          : 1;
   var highlightRadius = camera.zoom >= 20
-      ? 4
+      ? camera.zoom / 10
       : camera.zoom >= 10
           ? 2
           : 0;
@@ -206,17 +212,46 @@ void render() {
     (y0, y1) = (min(y0, y1), max(y0, y1));
     final cellX = (x0 - camera.topLeftX) * camera.zoom;
     final cellY = (y0 - camera.topLeftY) * camera.zoom;
-    context.strokeStyle = 'rgb(28, 48, 77)' as JSString;
+    if (inputMode == InputMode.insert) {
+      context.strokeStyle = 'lch(52.37% 80.68 301.78)' as JSString;
+    } else {
+      context.strokeStyle = 'rgb(28, 48, 77)' as JSString;
+    }
     context.lineWidth = highlightWidth;
-    final path = Path2D();
-    final padding = highlightPadding + 1;
-    path.roundRect(
-        cellX - padding,
-        cellY - padding,
-        (x1 - x0 + 1) * camera.zoom + padding * 2 + 1,
-        (y1 - y0 + 1) * camera.zoom + padding * 2 + 1,
-        [max(0, highlightRadius - 1)] as JSObject);
-    context.stroke(path);
+    final padding = highlightPadding + highlightWidth;
+    if (inputMode != InputMode.insert || !didInsert) {
+      final path = Path2D();
+      path.roundRect(
+          cellX - padding,
+          cellY - padding,
+          (x1 - x0 + 1) * camera.zoom + padding * 2 + 1,
+          (y1 - y0 + 1) * camera.zoom + padding * 2 + 1,
+          [max(0, highlightRadius + highlightWidth)] as JSObject);
+      context.stroke(path);
+    }
+    // Paint an arrow for insert mode
+    if (inputMode == InputMode.insert && insertDirection != null) {
+      final triangleSize = max(
+          4, min(camera.zoom * 0.5, camera.zoom * 0.2 + highlightWidth * 2));
+      context.save();
+      context.translate(cellX + camera.zoom / 2, cellY + camera.zoom / 2);
+      context.rotate(insertDirection! * pi / 2);
+      context.translate(camera.zoom / 2 + padding, 0);
+      context.fillStyle = 'lch(52.37% 80.68 301.78)' as JSString;
+      context.beginPath();
+      context.moveTo(0.5, -triangleSize / 2);
+      context.lineTo(0.5 + triangleSize / 2, 0);
+      context.lineTo(0.5, triangleSize / 2);
+      context.fill();
+      if (didInsert) {
+        context.beginPath();
+        context.lineCap = 'round';
+        context.moveTo(1, -camera.zoom / 2 + highlightWidth / 2);
+        context.lineTo(1, camera.zoom / 2 - highlightWidth / 2);
+        context.stroke();
+      }
+      context.restore();
+    }
   }
 
   if (hoverCell != null && !selecting && !hideHover) {

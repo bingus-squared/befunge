@@ -23,4 +23,7 @@ var hideHover = false;
 (int, int)? hoverCell;
 (int, int)? selectStartCell;
 (int, int)? selectEndCell;
+int? insertDirection = 0;
+var didInsert = false;
+(int, int, int)? pivotFrom;
 InputMode inputMode = InputMode.normal;
