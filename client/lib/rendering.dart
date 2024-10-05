@@ -11,10 +11,7 @@ import 'package:web/helpers.dart';
 import 'state.dart';
 
 class Camera {
-  Vector2 center = Vector2(
-    (chunkWidth * chunkLimit) / 2,
-    (chunkWidth * chunkLimit) / 2,
-  );
+  Vector2 center = Vector2(0, 0);
   double zoomD = 4.0;
   int get zoom => pow(zoomD, 2).round();
   late double lastWidth;
@@ -22,6 +19,8 @@ class Camera {
   int get scaledChunkWidth => chunkWidth * zoom;
   double get topLeftX => center.x - lastWidth / zoom / 2;
   double get topLeftY => center.y - lastHeight / zoom / 2;
+  double get bottomRightX => center.x + lastWidth / zoom / 2;
+  double get bottomRightY => center.y + lastHeight / zoom / 2;
   double get topLeftChunkX =>
       center.x / chunkWidth - lastWidth / scaledChunkWidth / 2;
   double get topLeftChunkY =>

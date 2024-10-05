@@ -213,7 +213,7 @@ void printSel() {
   }
 }
 
-void moveInsert(int dir) {
+bool moveInsert(int dir) {
   final dt = dirNormal(dir);
   final newCell = (
     selectStartCell!.$1 + dt.$1,
@@ -225,6 +225,42 @@ void moveInsert(int dir) {
       newCell.$2 < chunkWidth * chunkLimit) {
     selectStartCell = newCell;
     selectEndCell = newCell;
+    ensureCellVisible(newCell.$1, newCell.$2);
+    return true;
+  }
+  didInsert = false;
+  pivotFrom = null;
+  return false;
+}
+
+void focusCameraOnCell(int x, int y) {
+  camera.center.x = x.toDouble() + 0.5;
+  camera.center.y = y.toDouble() + 0.5;
+}
+
+void ensureCellVisible(int x, int y) {
+  final cw = camera.lastWidth * 0.8;
+  final ch = camera.lastHeight * 0.8;
+  final topLeftX = (camera.center.x - cw / camera.zoom / 2) + 0.5;
+  final topLeftY = (camera.center.y - ch / camera.zoom / 2) + 0.5;
+  final bottomRightX = (camera.center.x + cw / camera.zoom / 2) - 0.5;
+  final bottomRightY = (camera.center.y + ch / camera.zoom / 2) - 0.5;
+
+  if ((bottomRightX - topLeftX < 10) || (bottomRightY - topLeftY < 10)) {
+    focusCameraOnCell(x, y);
+    return;
+  }
+
+  if (x < topLeftX) {
+    camera.center.x += x - topLeftX;
+  } else if (x > bottomRightX) {
+    camera.center.x += x - bottomRightX;
+  }
+
+  if (y < topLeftY) {
+    camera.center.y += y - topLeftY;
+  } else if (y > bottomRightY) {
+    camera.center.y += y - bottomRightY;
   }
 }
 
@@ -357,35 +393,30 @@ void start() {
       }
       return;
     }
-    if (key == 'i') {
-      setInputMode(InputMode.insert);
-      printSel();
-    } else if (key == ':') {
-      setInputMode(InputMode.command);
-    }
     event.preventDefault();
   });
   html.window.onKeyDown.listen((event) {
     print('Key down: ${event.key}');
     final key = event.key;
-    if (key == null) {
+    if (key == null || event.ctrlKey || event.metaKey) {
       return;
     }
     if (key == 'Escape') {
       if (inputMode != InputMode.normal) {
         setInputMode(InputMode.normal);
         printSel();
-      } else if (hasOutput()) {
-        clearOutput();
-      } else {
+      } else if (selectStartCell != null) {
         selectStartCell = null;
         selectEndCell = null;
-        printSel();
+        clearOutput();
+      } else if (hasOutput()) {
+        clearOutput();
       }
       html.window.getSelection()?.removeAllRanges();
       hideHover = true;
       selecting = false;
       render();
+      event.preventDefault();
     } else if (inputMode == InputMode.insert) {
       if (key == 'ArrowRight' ||
           key == 'ArrowDown' ||
@@ -401,7 +432,7 @@ void start() {
         } else if (key == 'ArrowUp') {
           dir = 3;
         }
-        if (!event.shiftKey) {
+        if (!event.shiftKey && dir != insertDirection) {
           if (!didInsert) {
             moveInsert(dir);
             insertDirection = dir;
@@ -420,6 +451,7 @@ void start() {
           moveInsert(dir);
         }
         render();
+        event.preventDefault();
       } else {
         pivotFrom = null;
         if (key == 'Backspace') {
@@ -432,9 +464,10 @@ void start() {
             chunk.getCells()[localX + localY * chunkWidth] = 0x20;
             dirtyChunks.add((chunkX, chunkY));
           }
-          moveInsert((insertDirection! + 2) % 4);
           didInsert = true;
+          moveInsert((insertDirection! + 2) % 4);
           render();
+          event.preventDefault();
         } else {
           // Printable characters
           if (key.length == 1) {
@@ -442,8 +475,20 @@ void start() {
             if (c >= 32 && c < 127) {
               if (didInsert) {
                 moveInsert(insertDirection!);
+                updateCursor();
               } else {
                 didInsert = true;
+              }
+              final dt = dirNormal(insertDirection!);
+              final nextCell = (
+                selectStartCell!.$1 + dt.$1,
+                selectStartCell!.$2 + dt.$2,
+              );
+              if ((nextCell.$1 < 0 ||
+                      nextCell.$2 < 0 ||
+                      nextCell.$1 >= chunkWidth * chunkLimit ||
+                      nextCell.$2 >= chunkWidth * chunkLimit)) {
+                didInsert = false;
               }
               final chunkX = selectStartCell!.$1 ~/ chunkWidth;
               final chunkY = selectStartCell!.$2 ~/ chunkWidth;
@@ -453,9 +498,19 @@ void start() {
               chunk.getCells()[localX + localY * chunkWidth] = c;
               dirtyChunks.add((chunkX, chunkY));
               render();
+              event.preventDefault();
             }
           }
         }
+      }
+    } else if (inputMode == InputMode.normal) {
+      if (key == 'i') {
+        setInputMode(InputMode.insert);
+        event.preventDefault();
+        printSel();
+      } else if (key == ':') {
+        setInputMode(InputMode.command);
+        event.preventDefault();
       }
     }
   });
