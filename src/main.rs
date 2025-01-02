@@ -1,6 +1,6 @@
 use crate::sim::step::Simulation;
 use crate::sim::subscription::{Subscriber, SubscriptionManager};
-use crate::sim::{Cursor, Direction, Grid, GridUpdate, GridUpdateAction};
+use crate::sim::{Cursor, Direction, Grid, GridUpdate, GridUpdateAction, CHUNK_LIMIT};
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
@@ -50,19 +50,34 @@ pub async fn start_http_server(port: u16, state: Arc<AppState>) -> Result<()> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum BfMessage {
+    Hello {
+        chunk_limit: usize,
+    },
     ChunkData {
         x: usize,
         y: usize,
         data: String,
         cursors: HashMap<usize, Cursor>,
+        tick: usize,
     },
-    Update(GridUpdate),
+    CellData {
+        x: usize,
+        y: usize,
+        c: u8,
+        tick: usize,
+    },
+    Update {
+        updates: Vec<GridUpdate>,
+        tick: usize,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 enum BfClientMessage {
     SubscribeChunk { x: usize, y: usize },
     UnsubscribeChunk { x: usize, y: usize },
+    GetCell { x: usize, y: usize },
+    UpdateCell { x: usize, y: usize, c: u8 },
 }
 
 pub struct WebsocketSubscriber {
@@ -70,14 +85,14 @@ pub struct WebsocketSubscriber {
 }
 
 impl Subscriber for WebsocketSubscriber {
-    fn notify(&self, updates: Vec<GridUpdate>) {
+    fn notify(&self, updates: Vec<GridUpdate>, tick: usize) {
         self.tx
             .try_send(
                 serde_json::to_string(
-                    &updates
-                        .into_iter()
-                        .map(|e| BfMessage::Update(e))
-                        .collect::<Vec<_>>(),
+                    &BfMessage::Update {
+                        updates,
+                        tick,
+                    },
                 )
                 .unwrap(),
             )
@@ -125,6 +140,7 @@ async fn handle_client_message(
                             y,
                             data,
                             cursors: chunk.cursors.clone(),
+                            tick: simulation.grid.tick,
                         })
                         .unwrap(),
                     ))
@@ -136,6 +152,32 @@ async fn handle_client_message(
             let mut subscription_manager = state.subscription_manager.lock().await;
             subscription_manager.unsubscribe_chunk(id, x, y);
         }
+        BfClientMessage::GetCell { x, y } => {
+            let simulation = state.simulation.lock().await;
+            if let Some(chunk) = simulation.grid.chunks.get(&(x, y)) {
+                let c = chunk.get(0, 0);
+                socket
+                    .send(Message::Text(
+                        serde_json::to_string(&BfMessage::CellData {
+                            x,
+                            y,
+                            c,
+                            tick: simulation.grid.tick,
+                        })
+                        .unwrap(),
+                    ))
+                    .await
+                    .unwrap();
+            }
+        }
+        BfClientMessage::UpdateCell { x, y, c } => {
+            let mut simulation = state.simulation.lock().await;
+            simulation.grid.apply(GridUpdate {
+                x,
+                y,
+                action: GridUpdateAction::UpdateCell { c },
+            });
+        }
     }
 }
 
@@ -146,6 +188,14 @@ async fn handle_socket(
     mut rx: mpsc::Receiver<String>,
     state: Arc<AppState>,
 ) -> Result<()> {
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&BfMessage::Hello {
+                chunk_limit: CHUNK_LIMIT,
+            })
+            .unwrap(),
+        ))
+        .await?;
     loop {
         tokio::select! {
             msg = socket.recv() => {
@@ -205,7 +255,7 @@ async fn main() -> Result<()> {
             let mut simulation = app_state_clone.simulation.lock().await;
             let updates = simulation.step();
             let subscription_manager = app_state_clone.subscription_manager.lock().await;
-            subscription_manager.notify(updates);
+            subscription_manager.notify(updates, simulation.grid.tick);
         }
     });
 

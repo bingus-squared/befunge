@@ -7,7 +7,7 @@ import 'chunks.dart';
 import 'rendering.dart';
 
 const chunkWidth = 32;
-const chunkLimit = 4; // 335544320;
+var chunkLimit = 0;
 var rand = Random();
 var camera = Camera();
 var atlasCache = AtlasCache();

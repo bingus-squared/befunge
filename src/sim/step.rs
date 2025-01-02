@@ -1,4 +1,4 @@
-use crate::sim::{Direction, Grid, GridUpdate, GridUpdateAction, CHUNK_WIDTH};
+use crate::sim::{Direction, Grid, GridUpdate, GridUpdateAction, CHUNK_LIMIT, CHUNK_WIDTH};
 use rand::prelude::SmallRng;
 use rand::{Rng, SeedableRng};
 
@@ -17,22 +17,22 @@ impl SimulationStep<'_> {
         let abs_x = cursor.x + chunk_pos.0 * CHUNK_WIDTH;
         let abs_y = cursor.y + chunk_pos.1 * CHUNK_WIDTH;
 
+        let mut push_update = |action| {
+            self.updates.push(GridUpdate {
+                x: abs_x,
+                y: abs_y,
+                action,
+            });
+        };
+
         if cursor.string_mode {
             match chunk.get(cursor.x, cursor.y) {
-                b'"' => self.updates.push(GridUpdate {
-                    x: abs_x,
-                    y: abs_y,
-                    action: GridUpdateAction::ToggleStringMode { id },
-                }),
+                b'"' => push_update(GridUpdateAction::ToggleStringMode { id }),
                 c => {
-                    self.updates.push(GridUpdate {
-                        x: abs_x,
-                        y: abs_y,
-                        action: GridUpdateAction::UpdateStack {
-                            id,
-                            pop: 0,
-                            push: vec![c as i64],
-                        },
+                    push_update(GridUpdateAction::UpdateStack {
+                        id,
+                        pop: 0,
+                        push: vec![c as i64],
                     });
                 }
             }
@@ -40,35 +40,19 @@ impl SimulationStep<'_> {
             match chunk.get(cursor.x, cursor.y) {
                 b'^' => {
                     direction = Direction::Up;
-                    self.updates.push(GridUpdate {
-                        x: abs_x,
-                        y: abs_y,
-                        action: GridUpdateAction::ChangeDirection { id, direction },
-                    });
+                    push_update(GridUpdateAction::ChangeDirection { id, direction });
                 }
                 b'v' => {
                     direction = Direction::Down;
-                    self.updates.push(GridUpdate {
-                        x: abs_x,
-                        y: abs_y,
-                        action: GridUpdateAction::ChangeDirection { id, direction },
-                    });
+                    push_update(GridUpdateAction::ChangeDirection { id, direction });
                 }
                 b'<' => {
                     direction = Direction::Left;
-                    self.updates.push(GridUpdate {
-                        x: abs_x,
-                        y: abs_y,
-                        action: GridUpdateAction::ChangeDirection { id, direction },
-                    });
+                    push_update(GridUpdateAction::ChangeDirection { id, direction });
                 }
                 b'>' => {
                     direction = Direction::Right;
-                    self.updates.push(GridUpdate {
-                        x: abs_x,
-                        y: abs_y,
-                        action: GridUpdateAction::ChangeDirection { id, direction },
-                    });
+                    push_update(GridUpdateAction::ChangeDirection { id, direction });
                 }
                 b'?' => {
                     direction = match self.rng.gen_range(0..4) {
@@ -78,48 +62,41 @@ impl SimulationStep<'_> {
                         3 => Direction::Right,
                         _ => unreachable!(),
                     };
-                    self.updates.push(GridUpdate {
-                        x: abs_x,
-                        y: abs_y,
-                        action: GridUpdateAction::ChangeDirection { id, direction },
-                    });
+                    push_update(GridUpdateAction::ChangeDirection { id, direction });
                 }
                 _ => {}
             }
         }
 
         if cursor.energy == 0 {
-            self.updates.push(GridUpdate {
-                x: abs_x,
-                y: abs_y,
-                action: GridUpdateAction::DestroyCursor { id },
-            });
+            push_update(GridUpdateAction::DestroyCursor { id });
             return;
         }
 
-        self.updates.push(GridUpdate {
-            x: abs_x,
-            y: abs_y,
-            action: GridUpdateAction::MoveCursor {
-                id,
-                to_x: match direction {
-                    Direction::Left => abs_x - 1,
-                    Direction::Right => abs_x + 1,
-                    _ => abs_x,
-                },
-                to_y: match direction {
-                    Direction::Up => abs_y - 1,
-                    Direction::Down => abs_y + 1,
-                    _ => abs_y,
-                },
-            },
-        });
+        let to_x = match direction {
+            Direction::Left => cursor.x.checked_sub(1),
+            Direction::Right => cursor.x.checked_add(1),
+            _ => Some(cursor.x),
+        };
+        let to_y = match direction {
+            Direction::Up => cursor.y.checked_sub(1),
+            Direction::Down => cursor.y.checked_add(1),
+            _ => Some(cursor.y),
+        };
 
-        self.updates.push(GridUpdate {
-            x: abs_x,
-            y: abs_y,
-            action: GridUpdateAction::ConsumeEnergy { id, energy: 1 },
-        });
+        match (to_x, to_y) {
+            (Some(to_x), Some(to_y))
+                if to_x < CHUNK_WIDTH * CHUNK_LIMIT && to_y < CHUNK_WIDTH * CHUNK_LIMIT =>
+            {
+                push_update(GridUpdateAction::MoveCursor { id, to_x, to_y });
+            }
+            _ => {
+                push_update(GridUpdateAction::DestroyCursor { id });
+                return;
+            }
+        }
+
+        push_update(GridUpdateAction::ConsumeEnergy { id, energy: 1 });
     }
 
     pub fn step_grid(&mut self) {
@@ -150,7 +127,7 @@ impl Simulation {
         };
         step.step_grid();
         let updates = step.updates;
-        self.grid.ticks += 1;
+        self.grid.tick += 1;
         for update in updates.iter() {
             println!("{:?}", update);
             self.grid.apply(update.clone());

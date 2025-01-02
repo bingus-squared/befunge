@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
-const CHUNK_WIDTH: usize = 32;
-const CHUNK_LIMIT: usize = 10; // 335544320;
+pub const CHUNK_WIDTH: usize = 32;
+pub const CHUNK_LIMIT: usize = 10; // 335544320;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Cursor {
@@ -27,7 +27,7 @@ pub struct Chunk {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Grid {
-    pub ticks: usize,
+    pub tick: usize,
     pub chunks: HashMap<(usize, usize), Chunk>,
     pub cursor_chunks: HashMap<usize, (usize, usize)>,
 }
@@ -105,7 +105,7 @@ impl Chunk {
 impl Grid {
     pub fn new() -> Grid {
         Grid {
-            ticks: 0,
+            tick: 0,
             chunks: HashMap::new(),
             cursor_chunks: HashMap::new(),
         }

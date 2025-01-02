@@ -3,7 +3,7 @@ use slab::Slab;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub trait Subscriber: Send {
-    fn notify(&self, updates: Vec<GridUpdate>);
+    fn notify(&self, updates: Vec<GridUpdate>, tick: usize);
 }
 
 pub struct SubscriptionManager<S: Subscriber> {
@@ -33,7 +33,7 @@ impl<S: Subscriber> SubscriptionManager<S> {
         }
     }
 
-    pub fn notify(&self, updates: Vec<GridUpdate>) {
+    pub fn notify(&self, updates: Vec<GridUpdate>, tick: usize) {
         let mut update_queue: BTreeMap<usize, Vec<GridUpdate>> = Default::default();
         for update in updates {
             update.visit_chunks(|chunk_x, chunk_y| {
@@ -48,7 +48,7 @@ impl<S: Subscriber> SubscriptionManager<S> {
             });
         }
         for (id, updates) in update_queue {
-            self.subscribers[id].1.notify(updates);
+            self.subscribers[id].1.notify(updates, tick);
         }
     }
 

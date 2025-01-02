@@ -6,6 +6,7 @@ import 'package:client/rendering.dart';
 import 'package:client/state.dart';
 import 'package:web/helpers.dart';
 import 'package:web_socket_channel/html.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum InputMode {
   normal,
@@ -26,7 +27,7 @@ void setInputMode(InputMode mode) {
       commandInput.blur();
       commandBar.style.display = 'none';
       inputMode = mode;
-      render();
+      queueRender();
     case InputMode.insert:
       selectStartCell ??= hoverCell;
       if (selectStartCell == null) {
@@ -41,13 +42,13 @@ void setInputMode(InputMode mode) {
       didInsert = false;
       selecting = false;
       inputMode = mode;
-      render();
+      queueRender();
     case InputMode.command:
       commandBar.style.display = 'block';
       commandInput.focus();
       hideHover = true;
       inputMode = mode;
-      render();
+      queueRender();
   }
 }
 
@@ -78,9 +79,38 @@ void setOutput(String output) {
   outputDiv.style.display = 'block';
 }
 
+void clearNotification() {
+  final notificationDiv =
+      document.querySelector('#command-bar-notification') as html.DivElement;
+  notificationDiv.innerHtml = '';
+  notificationDiv.style.display = 'none';
+}
+
+bool hasNotification() {
+  final notificationDiv =
+      document.querySelector('#command-bar-notification') as html.DivElement;
+  return notificationDiv.style.display != 'none';
+}
+
+void setNotification(String notification) {
+  if (notification.isEmpty) {
+    clearNotification();
+    return;
+  }
+  final notificationDiv =
+      document.querySelector('#command-bar-notification') as html.DivElement;
+  notificationDiv.innerHtml = '<img src="spinner.svg" class="command-spinner"/>';
+  final pre = document.createTextNode(' $notification');
+  notificationDiv.append(pre as html.Node);
+  notificationDiv.style.display = 'block';
+}
+
 void handleMessage(dynamic messageData) {
   print(JsonEncoder.withIndent('  ').convert(messageData));
   if (messageData
+  case {'Hello': {'chunk_limit': int newChunkLimit}}) {
+    chunkLimit = newChunkLimit;
+  } else if (messageData
       case {
         'ChunkData': {
           'x': num x,
@@ -161,7 +191,9 @@ void handleMessage(dynamic messageData) {
 }
 
 void connect() {
+  setNotification('connecting');
   channel = HtmlWebSocketChannel.connect('ws://localhost:3000/ws');
+  var wasError = false;
   channel!.stream.listen((message) {
     if (message is! String) {
       return;
@@ -177,15 +209,25 @@ void connect() {
   }, onDone: () {
     final delay = rand.nextInt(9) + 1;
     print('Channel closed, reconnecting in $delay seconds');
+    if (!wasError) {
+      setNotification('channel closed');
+    }
     channel = null;
     Future.delayed(Duration(seconds: delay), connect);
   }, onError: (e) {
     print('Channel error: $e');
+    if (e is WebSocketChannelException) {
+      setNotification('channel error: ${e.message}');
+    } else {
+      setNotification('channel error');
+    }
+    wasError = true;
   });
   channel!.ready.then((_) {
     print('Connected');
     lastSubscribedChunks.clear();
-    render();
+    clearNotification();
+    queueRender();
   });
 }
 
@@ -266,11 +308,11 @@ void ensureCellVisible(int x, int y) {
 
 void start() {
   connect();
-  render();
+  queueRender();
   setInputMode(InputMode.normal);
 
   html.window.onResize.listen((event) {
-    render();
+    queueRender();
   });
 
   final canvas = document.querySelector('#output') as CanvasElement;
@@ -309,7 +351,7 @@ void start() {
         pivotFrom = null;
         selecting = true;
         printSel();
-        render();
+        queueRender();
       }
     } else if (event.button == 1) {
       panning = true;
@@ -320,7 +362,7 @@ void start() {
     if (event.button == 0) {
       selecting = false;
       hideHover = true;
-      render();
+      queueRender();
       event.preventDefault();
     } else if (event.button == 1) {
       panning = false;
@@ -333,7 +375,7 @@ void start() {
     if (target is! CanvasElement || target != canvas) {
       if (hoverCell != null) {
         hoverCell = null;
-        render();
+        queueRender();
       }
       return;
     }
@@ -341,7 +383,7 @@ void start() {
     if (panning) {
       camera.center.x -= event.movement.x / camera.zoom;
       camera.center.y -= event.movement.y / camera.zoom;
-      render();
+      queueRender();
     }
     final x = event.offset.x;
     final y = event.offset.y;
@@ -366,7 +408,7 @@ void start() {
           printSel();
         }
       }
-      render();
+      queueRender();
     }
   });
   html.window.onWheel.listen((event) {
@@ -415,7 +457,7 @@ void start() {
       html.window.getSelection()?.removeAllRanges();
       hideHover = true;
       selecting = false;
-      render();
+      queueRender();
       event.preventDefault();
     } else if (inputMode == InputMode.insert) {
       if (key == 'ArrowRight' ||
@@ -450,7 +492,7 @@ void start() {
           pivotFrom = null;
           moveInsert(dir);
         }
-        render();
+        queueRender();
         event.preventDefault();
       } else {
         pivotFrom = null;
@@ -466,7 +508,7 @@ void start() {
           }
           didInsert = true;
           moveInsert((insertDirection! + 2) % 4);
-          render();
+          queueRender();
           event.preventDefault();
         } else {
           // Printable characters
@@ -511,6 +553,48 @@ void start() {
       } else if (key == ':') {
         setInputMode(InputMode.command);
         event.preventDefault();
+      } else if ((key == 'ArrowRight' ||
+          key == 'ArrowDown' ||
+          key == 'ArrowLeft' ||
+          key == 'ArrowUp') && selectStartCell != null) {
+        late int dir;
+        if (key == 'ArrowRight') {
+          dir = 0;
+        } else if (key == 'ArrowDown') {
+          dir = 1;
+        } else if (key == 'ArrowLeft') {
+          dir = 2;
+        } else if (key == 'ArrowUp') {
+          dir = 3;
+        }
+        final dt = dirNormal(dir);
+        final newSelectStartCell = (
+          selectStartCell!.$1 + dt.$1,
+          selectStartCell!.$2 + dt.$2,
+        );
+        final newSelectEndCell = (
+          selectEndCell!.$1 + dt.$1,
+          selectEndCell!.$2 + dt.$2,
+        );
+        if (newSelectStartCell.$1 >= 0 &&
+            newSelectStartCell.$2 >= 0 &&
+            newSelectStartCell.$1 < chunkWidth * chunkLimit &&
+            newSelectStartCell.$2 < chunkWidth * chunkLimit &&
+            newSelectEndCell.$1 >= 0 &&
+            newSelectEndCell.$2 >= 0 &&
+            newSelectEndCell.$1 < chunkWidth * chunkLimit &&
+            newSelectEndCell.$2 < chunkWidth * chunkLimit) {
+          selectStartCell = newSelectStartCell;
+          selectEndCell = newSelectEndCell;
+          if (dir == 2 || dir == 3) {
+            ensureCellVisible(newSelectStartCell.$1, newSelectStartCell.$2);
+          } else {
+            ensureCellVisible(newSelectEndCell.$1, newSelectEndCell.$2);
+          }
+          printSel();
+          queueRender();
+          event.preventDefault();
+        }
       }
     }
   });
