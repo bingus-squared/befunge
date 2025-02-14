@@ -105,6 +105,60 @@ void setNotification(String notification) {
   notificationDiv.style.display = 'block';
 }
 
+void handleUpdate(dynamic action, int x, int y, int tick) {
+  final chunkX = x ~/ chunkWidth;
+  final chunkY = y ~/ chunkWidth;
+  final localX = x % chunkWidth;
+  final localY = y % chunkWidth;
+  if (action case {'UpdateCell': {'c': int c}}) {
+    final chunk = chunkCache.getChunk(chunkX, chunkY);
+    chunk.getCells()[localX + localY * chunkWidth] = c;
+    dirtyChunks.add((chunkX, chunkY));
+    queueRender();
+  } else if (action
+  case {
+  'SpawnCursor': {'id': int id, 'direction': String directionStr}
+  }) {
+    final chunk = chunkCache.getChunk(chunkX, chunkY);
+    final direction = directions.indexOf(directionStr);
+    final cursor = chunk.cursors
+        .putIfAbsent(id, () => Cursor(localX, localY, direction));
+    cursor.x = localX;
+    cursor.y = localY;
+    cursor.direction = direction;
+    chunkCache.cursors[id] = (chunkX, chunkY);
+    queueRender();
+  } else if (action
+  case {'MoveCursor': {'id': int id, 'to_x': int toX, 'to_y': int toY}}) {
+    final toChunkX = toX ~/ chunkWidth;
+    final toChunkY = toY ~/ chunkWidth;
+    final chunk = chunkCache.getChunk(chunkX, chunkY);
+    chunkCache.cursors[id] = (toChunkX, toChunkY);
+    if (chunkX == toChunkX || chunkY == toChunkY) {
+      final cursor = chunk.cursors.putIfAbsent(
+          id, () => Cursor(toX % chunkWidth, toY % chunkWidth, 0));
+      cursor.x = toX % chunkWidth;
+      cursor.y = toY % chunkWidth;
+    } else {
+      chunk.cursors.remove(id);
+      final newChunk = chunkCache.getChunk(toChunkX, toChunkY);
+      final cursor = chunk.cursors.remove(id) ??
+          Cursor(toX % chunkWidth, toY % chunkWidth, 0);
+      newChunk.cursors[id] = cursor;
+    }
+    queueRender();
+  } else if (action case {'DestroyCursor': {'id': int id}}) {
+    final pos = chunkCache.cursors.remove(id);
+    if (pos != null) {
+      final chunk = chunkCache.getChunk(pos.$1, pos.$2);
+      chunk.cursors.remove(id);
+      queueRender();
+    }
+  } else {
+    print('Unknown action');
+  }
+}
+
 void handleMessage(dynamic messageData) {
   print(JsonEncoder.withIndent('  ').convert(messageData));
   if (messageData
@@ -133,57 +187,9 @@ void handleMessage(dynamic messageData) {
       queueRender();
     }
   } else if (messageData
-      case {'Update': {'action': dynamic action, 'x': int x, 'y': int y}}) {
-    final chunkX = x ~/ chunkWidth;
-    final chunkY = y ~/ chunkWidth;
-    final localX = x % chunkWidth;
-    final localY = y % chunkWidth;
-    if (action case {'UpdateCell': {'c': int c}}) {
-      final chunk = chunkCache.getChunk(chunkX, chunkY);
-      chunk.getCells()[localX + localY * chunkWidth] = c;
-      dirtyChunks.add((chunkX, chunkY));
-      queueRender();
-    } else if (action
-        case {
-          'SpawnCursor': {'id': int id, 'direction': String directionStr}
-        }) {
-      final chunk = chunkCache.getChunk(chunkX, chunkY);
-      final direction = directions.indexOf(directionStr);
-      final cursor = chunk.cursors
-          .putIfAbsent(id, () => Cursor(localX, localY, direction));
-      cursor.x = localX;
-      cursor.y = localY;
-      cursor.direction = direction;
-      chunkCache.cursors[id] = (chunkX, chunkY);
-      queueRender();
-    } else if (action
-        case {'MoveCursor': {'id': int id, 'to_x': int toX, 'to_y': int toY}}) {
-      final toChunkX = toX ~/ chunkWidth;
-      final toChunkY = toY ~/ chunkWidth;
-      final chunk = chunkCache.getChunk(chunkX, chunkY);
-      chunkCache.cursors[id] = (toChunkX, toChunkY);
-      if (chunkX == toChunkX || chunkY == toChunkY) {
-        final cursor = chunk.cursors.putIfAbsent(
-            id, () => Cursor(toX % chunkWidth, toY % chunkWidth, 0));
-        cursor.x = toX % chunkWidth;
-        cursor.y = toY % chunkWidth;
-      } else {
-        chunk.cursors.remove(id);
-        final newChunk = chunkCache.getChunk(toChunkX, toChunkY);
-        final cursor = chunk.cursors.remove(id) ??
-            Cursor(toX % chunkWidth, toY % chunkWidth, 0);
-        newChunk.cursors[id] = cursor;
-      }
-      queueRender();
-    } else if (action case {'DestroyCursor': {'id': int id}}) {
-      final pos = chunkCache.cursors.remove(id);
-      if (pos != null) {
-        final chunk = chunkCache.getChunk(pos.$1, pos.$2);
-        chunk.cursors.remove(id);
-        queueRender();
-      }
-    } else {
-      print('Unknown action');
+      case {'Update': {'updates': List<dynamic> updates, 'tick': int tick}}) {
+    for (final update in updates) {
+      handleUpdate(update['action'], update['x'], update['y'], tick);
     }
   } else {
     print('Unknown message');
